@@ -1,0 +1,106 @@
+syntax = "proto3";
+package muxcore.playback.jellyfin.v1;
+option go_package = "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1;jellyfinv1";
+
+service JellyfinBridge {
+  rpc RefreshLibrary(RefreshLibraryRequest) returns (RefreshLibraryResponse);
+  rpc PlayURL(PlayURLRequest) returns (PlayURLResponse);
+  rpc Status(StatusRequest) returns (StatusResponse);
+
+  rpc ListItemLinks(ListItemLinksRequest) returns (ListItemLinksResponse);
+  rpc UpsertItemLink(UpsertItemLinkRequest) returns (UpsertItemLinkResponse);
+  rpc DeleteItemLink(DeleteItemLinkRequest) returns (DeleteItemLinkResponse);
+  rpc MatchItem(MatchItemRequest) returns (MatchItemResponse);
+  rpc SyncLibrary(SyncLibraryRequest) returns (SyncLibraryResponse);
+}
+
+message RefreshLibraryRequest {
+  string item_id = 1; // optional; empty = full library refresh
+}
+
+message RefreshLibraryResponse {
+  bool ok = 1;
+}
+
+message PlayURLRequest {
+  string item_id = 1;
+}
+
+message PlayURLResponse {
+  string url = 1;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+  bool configured = 1;
+  string base_url = 2;
+  string conflict_mode = 3;
+  int32 item_links = 4;
+  bool sessions_poll_enabled = 5;
+}
+
+message ItemLink {
+  string muxcore_id = 1;
+  string jellyfin_id = 2;
+  string path = 3;
+  map<string, string> provider_ids = 4;
+  string media_kind = 5; // movie | tv | episode | other
+  string title = 6;
+  int64 updated_at_unix = 7;
+}
+
+message ListItemLinksRequest {
+  string media_kind = 1; // optional filter
+}
+
+message ListItemLinksResponse {
+  repeated ItemLink links = 1;
+}
+
+message UpsertItemLinkRequest {
+  ItemLink link = 1;
+}
+
+message UpsertItemLinkResponse {
+  ItemLink link = 1;
+}
+
+message DeleteItemLinkRequest {
+  string muxcore_id = 1;
+  string jellyfin_id = 2;
+}
+
+message DeleteItemLinkResponse {
+  bool ok = 1;
+}
+
+message MatchItemRequest {
+  string muxcore_id = 1;
+  string path = 2;
+  map<string, string> provider_ids = 3;
+  string media_kind = 4;
+  string title = 5;
+}
+
+message MatchItemResponse {
+  ItemLink link = 1;
+  bool matched = 2;
+  string match_reason = 3; // provider_id | path | existing
+}
+
+message SyncLibraryRequest {
+  // jellyfin = pull Jellyfin → update links (Jellyfin authoritative for metadata)
+  // muxcore = push known links / match MuxCore IDs against Jellyfin
+  // both = pull then reconcile by conflict_mode
+  string direction = 1;
+  bool dry_run = 2;
+}
+
+message SyncLibraryResponse {
+  int32 scanned = 1;
+  int32 matched = 2;
+  int32 upserted = 3;
+  int32 removed = 4;
+  repeated string errors = 5;
+}
