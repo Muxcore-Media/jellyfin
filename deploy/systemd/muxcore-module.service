@@ -20,7 +20,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/jellyfin
+ReadWritePaths=/var/lib/muxcore-jellyfin
 
 [Install]
 WantedBy=multi-user.target
