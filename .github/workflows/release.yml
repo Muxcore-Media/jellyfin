@@ -9,12 +9,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          path: core
+          repository: Muxcore-Media/core
+      - uses: actions/checkout@v4
+        with:
+          path: jellyfin
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
           cache: true
       - name: Build binaries
+        working-directory: ./jellyfin
         run: |
           mkdir -p dist
           GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o dist/jellyfin-linux-amd64 ./cmd/module
@@ -22,7 +28,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./jellyfin
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/jellyfin:${{ github.ref_name }}
@@ -30,5 +36,5 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: jellyfin/dist/*
           generate_release_notes: true
