@@ -39,7 +39,7 @@ jobs:
             ghcr.io/${{ env.IMAGE_OWNER }}/jellyfin:${{ github.ref_name }}
             ghcr.io/${{ env.IMAGE_OWNER }}/jellyfin:latest
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: jellyfin/dist/*
           generate_release_notes: true
