@@ -83,7 +83,10 @@ func (m *Module) MatchItem(ctx context.Context, req *jellyfinv1.MatchItemRequest
 
 func (m *Module) SyncLibrary(ctx context.Context, req *jellyfinv1.SyncLibraryRequest) (*jellyfinv1.SyncLibraryResponse, error) {
 	if !m.configured() {
-		return nil, fmt.Errorf("jellyfin not configured")
+		// Soft skip for MVP / unconfigured bridge (smoke expects errors[] note, not RPC failure).
+		return &jellyfinv1.SyncLibraryResponse{
+			Errors: []string{"jellyfin not configured; sync skipped"},
+		}, nil
 	}
 	dir := strings.ToLower(strings.TrimSpace(req.GetDirection()))
 	if dir == "" {
