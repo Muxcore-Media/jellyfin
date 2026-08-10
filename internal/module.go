@@ -202,10 +202,7 @@ func (m *Module) Init(ctx context.Context) error {
 func (m *Module) Start(ctx context.Context) error {
 	m.grpcSrv = grpc.NewServer()
 	jellyfinv1.RegisterJellyfinBridgeServer(m.grpcSrv, m)
-	modulesdk.RegisterMeshHandler(m.grpcSrv, m.id, modulesdk.SettingsHandler{
-		List:   m.settingsDefs,
-		Update: m.updateSetting,
-	})
+	modulesdk.RegisterSettings(m.grpcSrv, m.id, m)
 	go func() {
 		if err := m.grpcSrv.Serve(m.lis); err != nil {
 			slog.Error("jellyfin gRPC serve", "error", err)
@@ -333,6 +330,14 @@ func (m *Module) persistDurable() error {
 		return err
 	}
 	return os.Rename(tmp, m.settingsPath())
+}
+
+func (m *Module) Settings() []contracts.SettingDef {
+	return m.settingsDefs()
+}
+
+func (m *Module) UpdateSetting(key, value string) error {
+	return m.updateSetting(key, value)
 }
 
 func (m *Module) settingsDefs() []contracts.SettingDef {
