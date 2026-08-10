@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	moduleVersion = "0.2.0"
+	moduleVersion = "0.2.4"
 
 	conflictJellyfin = "jellyfin"
 	conflictMuxcore  = "muxcore"
