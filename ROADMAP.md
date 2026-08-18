@@ -11,5 +11,5 @@
 
 ## Remaining
 
-- [ ] Admin-ui / media-ui surfaces for status, refresh, play links
+- [x] Admin-ui / media-ui surfaces for status, refresh, play links
 - [ ] Shared playback contract package (only if other playback modules need it)
