@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
 type playbackEventPayload struct {
@@ -23,8 +25,18 @@ type playbackEventPayload struct {
 	DurationSeconds  int64  `json:"duration_seconds"`
 	MediaPath        string `json:"media_path,omitempty"`
 	Title            string `json:"title,omitempty"`
+	MediaType        string `json:"media_type,omitempty"`
 	IsPaused         bool   `json:"is_paused,omitempty"`
+	IsTranscode      bool   `json:"is_transcode,omitempty"`
+	PlayMethod       string `json:"play_method,omitempty"`
+	Platform         string `json:"platform,omitempty"`
+	Device           string `json:"device,omitempty"`
+	Player           string `json:"player,omitempty"`
+	IPAddress        string `json:"ip_address,omitempty"`
 	NotificationType string `json:"notification_type,omitempty"`
+	StreamResolution string `json:"stream_resolution,omitempty"`
+	VideoHeight      int    `json:"video_height,omitempty"`
+	VideoWidth       int    `json:"video_width,omitempty"`
 }
 
 func (m *Module) checkWebhookAuth(r *http.Request) bool {
@@ -103,6 +115,10 @@ func (m *Module) publishPlaybackFromWebhook(ctx context.Context, notif string, p
 	if item, ok := payload["Item"].(map[string]any); ok && durTicks == 0 {
 		durTicks = int64Field(item, "RunTimeTicks")
 	}
+	mediaType := ""
+	if item, ok := payload["Item"].(map[string]any); ok {
+		mediaType = stringField(item, "Type")
+	}
 	ev := playbackEventPayload{
 		ItemID:           itemID,
 		JellyfinItemID:   itemID,
@@ -116,18 +132,52 @@ func (m *Module) publishPlaybackFromWebhook(ctx context.Context, notif string, p
 		DurationSeconds:  ticksToSeconds(durTicks),
 		MediaPath:        path,
 		Title:            title,
+		MediaType:        mediaType,
 		NotificationType: notif,
 	}
+	enrichPlaybackFromMap(&ev, payload)
 	m.publishPlayback(ctx, eventType, ev)
+	m.applyPlaybackToUserdata(ctx, ev, eventType == "playback.stopped")
 }
 
 func (m *Module) publishPlayback(ctx context.Context, eventType string, ev playbackEventPayload) {
-	data, err := json.Marshal(ev)
+	data, err := playbackv1.MarshalSessionEvent(m.sessionInputFromPayload(eventType, ev))
 	if err != nil {
 		return
 	}
 	if err := m.publishEvent(ctx, eventType, data); err != nil {
 		slog.Debug("jellyfin: publish playback failed", "type", eventType, "error", err)
+	}
+}
+
+func (m *Module) sessionInputFromPayload(eventType string, ev playbackEventPayload) playbackv1.SessionInput {
+	itemID := ev.ItemID
+	if itemID == "" {
+		itemID = ev.JellyfinItemID
+	}
+	return playbackv1.SessionInput{
+		EventType:         eventType,
+		SourceModule:      m.id,
+		ServerID:          m.id,
+		ServerType:        "jellyfin",
+		ExternalSessionID: ev.SessionID,
+		UserID:            ev.UserID,
+		UserName:          ev.UserName,
+		ItemID:            itemID,
+		MuxcoreID:         ev.MuxcoreID,
+		Title:             ev.Title,
+		MediaType:         ev.MediaType,
+		PositionSeconds:   ev.PositionSeconds,
+		DurationSeconds:   ev.DurationSeconds,
+		IsPaused:          ev.IsPaused,
+		IsTranscode:       ev.IsTranscode,
+		PlayMethod:        ev.PlayMethod,
+		Platform:          ev.Platform,
+		Device:            ev.Device,
+		Player:            ev.Player,
+		IPAddress:         ev.IPAddress,
+		MediaPath:         ev.MediaPath,
+		StreamResolution:  streamResolutionFromPayload(ev),
 	}
 }
 
@@ -137,14 +187,24 @@ func (m *Module) pollSessionsLoop() {
 		sec := m.sessionsPollSec
 		m.mu.RUnlock()
 		wait := time.Second
-		if sec > 0 {
-			wait = time.Duration(sec) * time.Second
-			m.pollSessionsOnce()
+		if sec > 0 && m.configured() {
+			if m.sseConnectedNow() {
+				wait = time.Duration(sec*2) * time.Second
+				if wait < 60*time.Second {
+					wait = 60 * time.Second
+				}
+			} else {
+				wait = time.Duration(sec) * time.Second
+				m.pollSessionsOnce()
+			}
 		}
 		select {
 		case <-m.stopCh:
 			return
 		case <-time.After(wait):
+		}
+		if m.sseConnectedNow() {
+			m.pollSessionsOnce()
 		}
 	}
 }
@@ -195,13 +255,25 @@ func (m *Module) pollSessionsOnce() {
 			PositionSeconds: ticksToSeconds(pos),
 			MediaPath:       s.NowPlayingItem.Path,
 			Title:           s.NowPlayingItem.Name,
+			MediaType:       s.NowPlayingItem.Type,
 			IsPaused:        paused,
+			Platform:        s.Client,
+			Device:          s.DeviceName,
+			Player:          firstNonEmpty(s.AppName, s.Client),
+			IPAddress:       remoteIP(s.RemoteEndPoint),
 		}
+		if s.PlayState != nil {
+			ev.IsTranscode = strings.EqualFold(s.PlayState.PlayMethod, "Transcode") || s.TranscodingInfo != nil
+			ev.PlayMethod = strings.TrimSpace(s.PlayState.PlayMethod)
+		}
+		ev.StreamResolution = streamResolutionFromJFSession(s)
 		switch {
 		case prev == "":
 			m.publishPlayback(ctx, "playback.started", ev)
+			m.applyPlaybackToUserdata(ctx, ev, false)
 		default:
 			m.publishPlayback(ctx, "playback.progress", ev)
+			m.applyPlaybackToUserdata(ctx, ev, false)
 		}
 	}
 	m.mu.Lock()
@@ -270,4 +342,50 @@ func ticksToSeconds(ticks int64) int64 {
 		return 0
 	}
 	return ticks / 10_000_000
+}
+
+func enrichPlaybackFromMap(ev *playbackEventPayload, payload map[string]any) {
+	if ev == nil {
+		return
+	}
+	if session, ok := payload["Session"].(map[string]any); ok {
+		if ev.Platform == "" {
+			ev.Platform = stringField(session, "Client")
+		}
+		if ev.Device == "" {
+			ev.Device = stringField(session, "DeviceName", "Device")
+		}
+		if ev.Player == "" {
+			ev.Player = stringField(session, "AppName", "Client")
+		}
+		if ev.IPAddress == "" {
+			ev.IPAddress = remoteIP(stringField(session, "RemoteEndPoint"))
+		}
+		if ps, ok := session["PlayState"].(map[string]any); ok {
+			if ev.PlayMethod == "" {
+				ev.PlayMethod = strings.TrimSpace(stringField(ps, "PlayMethod"))
+			}
+			if !ev.IsTranscode {
+				ev.IsTranscode = strings.EqualFold(ev.PlayMethod, "Transcode")
+			}
+		}
+		if _, ok := session["TranscodingInfo"]; ok {
+			ev.IsTranscode = true
+		}
+	}
+}
+
+func remoteIP(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	if i := strings.LastIndex(endpoint, ":"); i > 0 {
+		host := endpoint[:i]
+		if strings.HasPrefix(host, "[") && strings.Contains(host, "]") {
+			return strings.Trim(host, "[]")
+		}
+		return host
+	}
+	return endpoint
 }

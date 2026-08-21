@@ -12,6 +12,7 @@ service JellyfinBridge {
   rpc DeleteItemLink(DeleteItemLinkRequest) returns (DeleteItemLinkResponse);
   rpc MatchItem(MatchItemRequest) returns (MatchItemResponse);
   rpc SyncLibrary(SyncLibraryRequest) returns (SyncLibraryResponse);
+  rpc TerminateSession(TerminateSessionRequest) returns (TerminateSessionResponse);
 }
 
 message RefreshLibraryRequest {
@@ -103,4 +104,14 @@ message SyncLibraryResponse {
   int32 upserted = 3;
   int32 removed = 4;
   repeated string errors = 5;
+}
+
+message TerminateSessionRequest {
+  string session_id = 1;
+  string reason = 2;
+}
+
+message TerminateSessionResponse {
+  bool ok = 1;
+  string error = 2;
 }

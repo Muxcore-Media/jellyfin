@@ -2,12 +2,41 @@
 
 MuxCore playback module that talks to an external Jellyfin server.
 
-Module ID: `jellyfin` · version `0.2.0` · `minCoreVersion` `0.4.0`
+Module ID: `jellyfin` · version `0.3.0` · `minCoreVersion` `0.4.0`
+
+## Product decision: bridge now, native player end state
+
+**Do not confuse these:**
+
+| Horizon | Playback UI |
+|---------|-------------|
+| **End state** | `media-ui-app` **replaces** Jellyfin web (OSD, tracks, resume, transcoder) — see workspace `MASTER-ROADMAP.md` |
+| **Near-term** | Households may play via this **Jellyfin bridge** (deep link / JF clients) while MuxCore owns browse, request, automation, and userdata sync |
+
+Native `<video>` / `VideoPlayer` in `media-ui-app` is **on the path to replacement**, not a permanent “dev only” dead end. Keep the bridge for library sync and optional JF clients even after native play ships.
+
+### Userdata / progress handoff
+
+| Surface | Source of truth while playing | After sync |
+|---------|------------------------------|------------|
+| MuxCore continue-watching / favorites / prefs / queue | BFF `/api/userdata` → `userdata-local` | Reflects Jellyfin UserData when `USERDATA_SYNC=1` |
+| Jellyfin playback position / watched / favorites | Jellyfin UserData API | Optional push from companion via `USERDATA_PUSH_TO_JELLYFIN=1` |
+| ID map MuxCore ↔ Jellyfin | `jellyfin` module item-link store | Progress keys prefer `muxcore_id` when linked |
+
+**Handoff flow**
+
+1. Browse/request in MuxCore UI; progress cached locally and synced to server userdata.
+2. Play via `PlayURL` / deep-link into Jellyfin web (or native JF clients).
+3. Jellyfin webhooks (or sessions poll) publish playback events **and** mirror progress into MuxCore userdata when sync is enabled.
+4. Periodic pull (`USERDATA_SYNC=1`) copies JF resumable / played / favorite items into `userdata-local` (or publishes `userdata.jellyfin.synced` if no URL).
+5. Companion UI PUTs to `/api/userdata`; BFF may notify the bridge (`JELLYFIN_USERDATA_PUSH_URL`) so JF UserData stays aligned.
+
+Do **not** invent a second playback backend or revive `contracts-playback` until a second server (e.g. Plex) is committed.
 
 ## Capabilities
 
-- `playback.jellyfin` / `playback`
-- `settings` — `base_url`, `api_key`, `webhook_secret`, `conflict_mode`, `sessions_poll_seconds`
+- `playback.jellyfin` / `playback` / `userdata.sync`
+- `settings` — connection, library conflict, sessions poll, userdata sync knobs
 
 ## RPCs (`JellyfinBridge`)
 
@@ -20,7 +49,10 @@ Module ID: `jellyfin` · version `0.2.0` · `minCoreVersion` `0.4.0`
 
 ## HTTP
 
-- `POST /webhook` — Jellyfin webhook → event bus + typed playback events
+- `POST /webhook` — Jellyfin webhook → event bus + typed playback events (+ userdata mirror when sync on)
+- `GET|POST /userdata/sync` — pull Jellyfin UserData → MuxCore userdata now
+- `POST|PUT /userdata/from-muxcore?user_id=` — push companion blob into Jellyfin (requires push enabled)
+- `GET /userdata/status` — sync flags
 - `GET /healthz`
 
 When `webhook_secret` / `JELLYFIN_WEBHOOK_SECRET` is set, requests must send
@@ -67,23 +99,53 @@ Conflict mode (`conflict_mode`):
 | `muxcore` | Keep MuxCore metadata when both sides differ |
 | `manual` | Do not overwrite non-empty MuxCore fields from Jellyfin |
 
-On `download.completed` / `media.imported` / `media.file.imported`, triggers a full library refresh
+On `download.completed` / `media.file.imported`, triggers a full library refresh
 and attempts to match the imported item into the link store.
+
+## Userdata sync
+
+When `USERDATA_SYNC=1`:
+
+1. Lists Jellyfin `/Users`, then for each user pulls `/Users/{id}/Items` with filters
+   `IsResumable`, `IsPlayed`, and `IsFavorite` (fields include `UserData`).
+2. Maps item IDs through the item-link store (`muxcore_id` preferred; else `jf:{id}`).
+3. Writes a mergeable progress/favorites blob to `USERDATA_LOCAL_URL` (`PUT /userdata?user_id=`),
+   or publishes event `userdata.jellyfin.synced` when the URL is empty.
+4. Also mirrors live webhook/session playback into userdata between polls.
+
+MuxCore → Jellyfin (optional): set `USERDATA_PUSH_TO_JELLYFIN=1` and point the BFF at
+`JELLYFIN_USERDATA_PUSH_URL=http://jellyfin:8475/userdata/from-muxcore`.
+
+User mapping: Jellyfin `Name` becomes MuxCore `user_id` by default. Override with
+`USERDATA_USER_MAP=jfUserId:muxUser,OtherName:bob`.
 
 ## Env
 
 | Var | Default | Notes |
 |-----|---------|-------|
-| `JELLYFIN_BASE_URL` | | Jellyfin server URL |
+| `JELLYFIN_BASE_URL` / `JELLYFIN_URL` | | Jellyfin server URL (`JELLYFIN_URL` is an alias) |
 | `JELLYFIN_API_KEY` | | API key |
 | `JELLYFIN_WEBHOOK_SECRET` | | Shared secret for `/webhook` |
 | `JELLYFIN_GRPC_ADDR` | `:9475` | gRPC listen |
-| `JELLYFIN_HTTP_ADDR` | `:8475` | HTTP listen (webhook / healthz) |
+| `JELLYFIN_HTTP_ADDR` | `:8475` | HTTP listen (webhook / userdata / healthz) |
 | `JELLYFIN_DATA_DIR` | `/var/lib/muxcore-jellyfin` | Durable settings + links |
 | `JELLYFIN_CONFLICT_MODE` | `jellyfin` | Sync conflict policy |
 | `JELLYFIN_SESSIONS_POLL_SECONDS` | `0` | `/Sessions` poll; `0` = off |
+| `USERDATA_SYNC` | `0` | `1` enables JF→MuxCore userdata handoff |
+| `USERDATA_SYNC_INTERVAL_SECONDS` | `300` | Pull interval (`USERDATA_SYNC_INTERVAL` alias) |
+| `USERDATA_LOCAL_URL` | | e.g. `http://userdata-local:9680` |
+| `USERDATA_PUSH_TO_JELLYFIN` | `0` | `1` enables companion → JF UserData |
+| `USERDATA_USER_MAP` | | `jfId:muxUser,Name:other` comma map |
 | `MUXCORE_GRPC_ADDR` | | Core mesh (webhook publish + import refresh) |
 | `MUXCORE_INSECURE_DISABLE_TLS` | `false` | Disable TLS to core (dev) |
+
+### mediauiprox (BFF) knobs
+
+| Var | Default | Notes |
+|-----|---------|-------|
+| `USERDATA_LOCAL_URL` | | Prefer mesh `userdata-local` for `/api/userdata` |
+| `USERDATA_PREFER_MESH` | `1` | Set `0` to force BFF-local files even when URL is set |
+| `JELLYFIN_USERDATA_PUSH_URL` | | e.g. `http://jellyfin:8475/userdata/from-muxcore` |
 
 ## Health
 

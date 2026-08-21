@@ -14,6 +14,7 @@ import (
 	"time"
 
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
+	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
 func testModule(t *testing.T, baseURL, apiKey string) *Module {
@@ -39,14 +40,17 @@ func TestModuleInfo(t *testing.T) {
 	if info.Version != moduleVersion {
 		t.Fatalf("version: %s", info.Version)
 	}
-	found := false
+	foundSettings, foundUD := false, false
 	for _, c := range info.Capabilities {
 		if c == "settings" {
-			found = true
+			foundSettings = true
+		}
+		if c == "userdata.sync" {
+			foundUD = true
 		}
 	}
-	if !found {
-		t.Fatal("expected settings capability")
+	if !foundSettings || !foundUD {
+		t.Fatalf("capabilities: %v", info.Capabilities)
 	}
 }
 
@@ -198,21 +202,23 @@ func TestWebhookAuthAndPlaybackEvents(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	hasJF, hasPB := false, false
-	var payload playbackEventPayload
 	for i, typ := range got {
 		if typ == "jellyfin.playbackstart" {
 			hasJF = true
 		}
 		if typ == "playback.started" {
 			hasPB = true
-			_ = json.Unmarshal(raws[i], &payload)
+			msg, err := playbackv1.UnmarshalSessionEvent(raws[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if msg.GetItemId() != "item1" || msg.GetUserName() != "alice" || msg.GetPositionSeconds() != 1 {
+				t.Fatalf("payload: %+v", msg)
+			}
 		}
 	}
 	if !hasJF || !hasPB {
 		t.Fatalf("events: %v", got)
-	}
-	if payload.JellyfinItemID != "item1" || payload.UserName != "alice" || payload.PositionSeconds != 1 {
-		t.Fatalf("payload: %+v", payload)
 	}
 }
 

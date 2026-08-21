@@ -25,58 +25,78 @@ import (
 )
 
 const (
-	moduleVersion = "0.2.4"
+	moduleVersion = "0.3.0"
 
 	conflictJellyfin = "jellyfin"
 	conflictMuxcore  = "muxcore"
 	conflictManual   = "manual"
 
 	headerWebhookSecret = "X-Jellyfin-Webhook-Secret"
+
+	defaultUserdataSyncSec = 300
 )
 
 type Module struct {
 	jellyfinv1.UnimplementedJellyfinBridgeServer
 
-	mu              sync.RWMutex
-	baseURL         string
-	apiKey          string
-	webhookSecret   string
-	conflictMode    string
-	sessionsPollSec int
-	id              string
-	grpcAddr        string
-	httpAddr        string
-	dataDir         string
-	grpcSrv         *grpc.Server
-	lis             net.Listener
-	httpSrv         *http.Server
-	httpLis         net.Listener
-	httpCli         *http.Client
-	mc              *client.Client
-	links           map[string]*ItemLink // key: muxcore_id or jf:jellyfin_id
-	stopCh          chan struct{}
-	sessionSeen     map[string]string // sessionKey -> last state
+	mu               sync.RWMutex
+	baseURL          string
+	apiKey           string
+	webhookSecret    string
+	conflictMode     string
+	sessionsPollSec  int
+	userdataSync     bool
+	userdataSyncSec  int
+	userdataLocalURL string
+	userdataPushToJF bool
+	userdataUserMap  map[string]string
+	id               string
+	grpcAddr         string
+	httpAddr         string
+	dataDir          string
+	grpcSrv          *grpc.Server
+	lis              net.Listener
+	httpSrv          *http.Server
+	httpLis          net.Listener
+	httpCli          *http.Client
+	mc               *client.Client
+	links            map[string]*ItemLink // key: muxcore_id or jf:jellyfin_id
+	stopCh           chan struct{}
+	sessionSeen      map[string]string // sessionKey -> last state
+	sseEnabledFlag   bool
+	sseMu            sync.RWMutex
+	sseConnected     bool
 }
 
 type Config struct {
-	ID              string
-	GRPCAddr        string
-	HTTPAddr        string
-	BaseURL         string
-	APIKey          string
-	WebhookSecret   string
-	DataDir         string
-	ConflictMode    string
-	SessionsPollSec int
+	ID               string
+	GRPCAddr         string
+	HTTPAddr         string
+	BaseURL          string
+	APIKey           string
+	WebhookSecret    string
+	DataDir          string
+	ConflictMode     string
+	SessionsPollSec  int
+	UserdataSync     bool
+	UserdataSyncSec  int
+	UserdataLocalURL string
+	UserdataPushToJF bool
+	UserdataUserMap  map[string]string
 }
 
 type durableSettings struct {
-	BaseURL         string              `json:"base_url"`
-	APIKey          string              `json:"api_key"`
-	WebhookSecret   string              `json:"webhook_secret"`
-	ConflictMode    string              `json:"conflict_mode"`
-	SessionsPollSec int                 `json:"sessions_poll_seconds"`
-	Links           map[string]ItemLink `json:"links,omitempty"`
+	BaseURL          string              `json:"base_url"`
+	APIKey           string              `json:"api_key"`
+	WebhookSecret    string              `json:"webhook_secret"`
+	ConflictMode     string              `json:"conflict_mode"`
+	SessionsPollSec  int                 `json:"sessions_poll_seconds"`
+	UserdataSync     bool                `json:"userdata_sync,omitempty"`
+	UserdataSyncSec  int                 `json:"userdata_sync_interval_seconds,omitempty"`
+	UserdataLocalURL string              `json:"userdata_local_url,omitempty"`
+	UserdataPushToJF bool                `json:"userdata_push_to_jellyfin,omitempty"`
+	UserdataUserMap  map[string]string   `json:"userdata_user_map,omitempty"`
+	Links            map[string]ItemLink `json:"links,omitempty"`
 }
 
 // ItemLink is the durable MuxCore ↔ Jellyfin mapping.
@@ -118,6 +138,10 @@ func NewModule(cfg Config) *Module {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = os.Getenv("JELLYFIN_BASE_URL")
 	}
+	if cfg.BaseURL == "" {
+		// Alias used in ops docs / compose snippets.
+		cfg.BaseURL = os.Getenv("JELLYFIN_URL")
+	}
 	if cfg.APIKey == "" {
 		cfg.APIKey = os.Getenv("JELLYFIN_API_KEY")
 	}
@@ -134,20 +158,50 @@ func NewModule(cfg Config) *Module {
 			}
 		}
 	}
+	if !cfg.UserdataSync {
+		cfg.UserdataSync = envTruthy(os.Getenv("USERDATA_SYNC"))
+	}
+	if cfg.UserdataSyncSec == 0 {
+		if n := parseSyncInterval(os.Getenv("USERDATA_SYNC_INTERVAL_SECONDS")); n > 0 {
+			cfg.UserdataSyncSec = n
+		} else if n := parseSyncInterval(os.Getenv("USERDATA_SYNC_INTERVAL")); n > 0 {
+			cfg.UserdataSyncSec = n
+		} else {
+			cfg.UserdataSyncSec = defaultUserdataSyncSec
+		}
+	}
+	if cfg.UserdataLocalURL == "" {
+		cfg.UserdataLocalURL = os.Getenv("USERDATA_LOCAL_URL")
+	}
+	if !cfg.UserdataPushToJF {
+		cfg.UserdataPushToJF = envTruthy(os.Getenv("USERDATA_PUSH_TO_JELLYFIN"))
+	}
+	if cfg.UserdataUserMap == nil {
+		cfg.UserdataUserMap = parseUserMap(os.Getenv("USERDATA_USER_MAP"))
+	}
 	m := &Module{
-		id:              cfg.ID,
-		grpcAddr:        cfg.GRPCAddr,
-		httpAddr:        cfg.HTTPAddr,
-		dataDir:         cfg.DataDir,
-		baseURL:         strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
-		apiKey:          strings.TrimSpace(cfg.APIKey),
-		webhookSecret:   strings.TrimSpace(cfg.WebhookSecret),
-		conflictMode:    normalizeConflict(cfg.ConflictMode),
-		sessionsPollSec: cfg.SessionsPollSec,
-		httpCli:         &http.Client{Timeout: 20 * time.Second},
-		links:           map[string]*ItemLink{},
-		stopCh:          make(chan struct{}),
-		sessionSeen:     map[string]string{},
+		id:               cfg.ID,
+		grpcAddr:         cfg.GRPCAddr,
+		httpAddr:         cfg.HTTPAddr,
+		dataDir:          cfg.DataDir,
+		baseURL:          strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		apiKey:           strings.TrimSpace(cfg.APIKey),
+		webhookSecret:    strings.TrimSpace(cfg.WebhookSecret),
+		conflictMode:     normalizeConflict(cfg.ConflictMode),
+		sessionsPollSec:  cfg.SessionsPollSec,
+		userdataSync:     cfg.UserdataSync,
+		userdataSyncSec:  cfg.UserdataSyncSec,
+		userdataLocalURL: strings.TrimRight(strings.TrimSpace(cfg.UserdataLocalURL), "/"),
+		userdataPushToJF: cfg.UserdataPushToJF,
+		userdataUserMap:  cfg.UserdataUserMap,
+		httpCli:          &http.Client{Timeout: 20 * time.Second},
+		links:            map[string]*ItemLink{},
+		stopCh:           make(chan struct{}),
+		sessionSeen:      map[string]string{},
+		sseEnabledFlag:   envSSEEnabled(os.Getenv("JELLYFIN_SSE")),
+	}
+	if m.userdataUserMap == nil {
+		m.userdataUserMap = map[string]string{}
 	}
 	return m
 }
@@ -169,9 +223,9 @@ func (m *Module) Info() contracts.ModuleInfo {
 		Name:           "Jellyfin Playback Bridge",
 		Version:        moduleVersion,
 		Roles:          []string{"playback"},
-		Description:    "Jellyfin bridge — library refresh/sync, playback session events, external play deep-links",
+		Description:    "Jellyfin bridge — library refresh/sync, playback session events, userdata progress/favorites handoff, external play deep-links",
 		Author:         "MuxCore",
-		Capabilities:   []string{"playback.jellyfin", "playback", "settings"},
+		Capabilities:   []string{"playback.jellyfin", "playback", "userdata.sync", "settings"},
 		MinCoreVersion: "0.4.0",
 		HTTPAddr:       m.grpcAddr,
 	}
@@ -211,6 +265,11 @@ func (m *Module) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /webhook", m.handleWebhook)
+	mux.HandleFunc("POST /userdata/sync", m.handleUserdataSync)
+	mux.HandleFunc("GET /userdata/sync", m.handleUserdataSync)
+	mux.HandleFunc("POST /userdata/from-muxcore", m.handleUserdataFromMuxcore)
+	mux.HandleFunc("PUT /userdata/from-muxcore", m.handleUserdataFromMuxcore)
+	mux.HandleFunc("GET /userdata/status", m.handleUserdataStatus)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -223,7 +282,10 @@ func (m *Module) Start(ctx context.Context) error {
 	}()
 
 	go m.connectCoreAndSubscribe()
+	go m.sseLoop()
 	go m.pollSessionsLoop()
+	go m.pollUserdataLoop()
+	go m.catalogSyncLoop()
 	return nil
 }
 
@@ -296,6 +358,21 @@ func (m *Module) loadDurable() error {
 	if s.SessionsPollSec > 0 {
 		m.sessionsPollSec = s.SessionsPollSec
 	}
+	if s.UserdataSync {
+		m.userdataSync = true
+	}
+	if s.UserdataSyncSec > 0 {
+		m.userdataSyncSec = s.UserdataSyncSec
+	}
+	if m.userdataLocalURL == "" && s.UserdataLocalURL != "" {
+		m.userdataLocalURL = strings.TrimRight(strings.TrimSpace(s.UserdataLocalURL), "/")
+	}
+	if s.UserdataPushToJF {
+		m.userdataPushToJF = true
+	}
+	if len(s.UserdataUserMap) > 0 && len(m.userdataUserMap) == 0 {
+		m.userdataUserMap = s.UserdataUserMap
+	}
 	m.links = map[string]*ItemLink{}
 	for k, link := range s.Links {
 		cp := link
@@ -307,12 +384,17 @@ func (m *Module) loadDurable() error {
 func (m *Module) persistDurable() error {
 	m.mu.RLock()
 	s := durableSettings{
-		BaseURL:         m.baseURL,
-		APIKey:          m.apiKey,
-		WebhookSecret:   m.webhookSecret,
-		ConflictMode:    m.conflictMode,
-		SessionsPollSec: m.sessionsPollSec,
-		Links:           map[string]ItemLink{},
+		BaseURL:          m.baseURL,
+		APIKey:           m.apiKey,
+		WebhookSecret:    m.webhookSecret,
+		ConflictMode:     m.conflictMode,
+		SessionsPollSec:  m.sessionsPollSec,
+		UserdataSync:     m.userdataSync,
+		UserdataSyncSec:  m.userdataSyncSec,
+		UserdataLocalURL: m.userdataLocalURL,
+		UserdataPushToJF: m.userdataPushToJF,
+		UserdataUserMap:  m.userdataUserMap,
+		Links:            map[string]ItemLink{},
 	}
 	for k, link := range m.links {
 		if link == nil {
@@ -343,11 +425,20 @@ func (m *Module) UpdateSetting(key, value string) error {
 func (m *Module) settingsDefs() []contracts.SettingDef {
 	m.mu.RLock()
 	base, key, secret, conflict, poll := m.baseURL, m.apiKey, m.webhookSecret, m.conflictMode, m.sessionsPollSec
+	udSync, udSec, udURL, udPush := m.userdataSync, m.userdataSyncSec, m.userdataLocalURL, m.userdataPushToJF
 	m.mu.RUnlock()
+	syncVal := "0"
+	if udSync {
+		syncVal = "1"
+	}
+	pushVal := "0"
+	if udPush {
+		pushVal = "1"
+	}
 	return []contracts.SettingDef{
 		{
 			Key: "base_url", Label: "Jellyfin Base URL", Type: contracts.SettingTypeString,
-			Value: base, Description: "e.g. http://jellyfin:8096", Required: true, Group: "Connection",
+			Value: base, Description: "e.g. http://jellyfin:8096 (JELLYFIN_BASE_URL or JELLYFIN_URL)", Required: true, Group: "Connection",
 		},
 		{
 			Key: "api_key", Label: "Jellyfin API Key", Type: contracts.SettingTypeSecret,
@@ -365,12 +456,28 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 			Key: "sessions_poll_seconds", Label: "Sessions Poll Interval (seconds)", Type: contracts.SettingTypeInt,
 			Value: fmt.Sprintf("%d", poll), Description: "0 disables /Sessions polling; webhooks preferred", Required: false, Group: "Playback",
 		},
+		{
+			Key: "userdata_sync", Label: "Userdata Sync", Type: contracts.SettingTypeString,
+			Value: syncVal, Description: "1 enables Jellyfin→MuxCore progress/favorites handoff (USERDATA_SYNC)", Required: false, Group: "Userdata",
+		},
+		{
+			Key: "userdata_sync_interval_seconds", Label: "Userdata Sync Interval (seconds)", Type: contracts.SettingTypeInt,
+			Value: fmt.Sprintf("%d", udSec), Description: "Poll interval when userdata_sync is on (default 300)", Required: false, Group: "Userdata",
+		},
+		{
+			Key: "userdata_local_url", Label: "Userdata Local URL", Type: contracts.SettingTypeString,
+			Value: udURL, Description: "HTTP base for userdata-local (e.g. http://userdata-local:9680)", Required: false, Group: "Userdata",
+		},
+		{
+			Key: "userdata_push_to_jellyfin", Label: "Push MuxCore→Jellyfin", Type: contracts.SettingTypeString,
+			Value: pushVal, Description: "1 enables companion UI progress push into Jellyfin UserData", Required: false, Group: "Userdata",
+		},
 	}
 }
 
 func (m *Module) updateSetting(key, value string) error {
 	switch key {
-	case "base_url", "JELLYFIN_BASE_URL":
+	case "base_url", "JELLYFIN_BASE_URL", "JELLYFIN_URL":
 		m.mu.Lock()
 		m.baseURL = strings.TrimRight(strings.TrimSpace(value), "/")
 		m.mu.Unlock()
@@ -399,6 +506,26 @@ func (m *Module) updateSetting(key, value string) error {
 		}
 		m.mu.Lock()
 		m.sessionsPollSec = n
+		m.mu.Unlock()
+	case "userdata_sync", "USERDATA_SYNC":
+		m.mu.Lock()
+		m.userdataSync = envTruthy(value)
+		m.mu.Unlock()
+	case "userdata_sync_interval_seconds", "USERDATA_SYNC_INTERVAL_SECONDS", "USERDATA_SYNC_INTERVAL":
+		n := parseSyncInterval(value)
+		if n <= 0 {
+			return fmt.Errorf("invalid userdata_sync_interval_seconds")
+		}
+		m.mu.Lock()
+		m.userdataSyncSec = n
+		m.mu.Unlock()
+	case "userdata_local_url", "USERDATA_LOCAL_URL":
+		m.mu.Lock()
+		m.userdataLocalURL = strings.TrimRight(strings.TrimSpace(value), "/")
+		m.mu.Unlock()
+	case "userdata_push_to_jellyfin", "USERDATA_PUSH_TO_JELLYFIN":
+		m.mu.Lock()
+		m.userdataPushToJF = envTruthy(value)
 		m.mu.Unlock()
 	default:
 		return fmt.Errorf("unknown setting %q", key)
@@ -440,6 +567,17 @@ func (m *Module) Status(context.Context, *jellyfinv1.StatusRequest) (*jellyfinv1
 		ItemLinks:           int32(n),
 		SessionsPollEnabled: m.sessionsPollSec > 0,
 	}, nil
+}
+
+func (m *Module) TerminateSession(ctx context.Context, req *jellyfinv1.TerminateSessionRequest) (*jellyfinv1.TerminateSessionResponse, error) {
+	if req.GetSessionId() == "" {
+		return &jellyfinv1.TerminateSessionResponse{Ok: false, Error: "session_id required"}, nil
+	}
+	path := fmt.Sprintf("/Sessions/%s/Playing/Stop", req.GetSessionId())
+	if err := m.jellyfinPOST(ctx, path); err != nil {
+		return &jellyfinv1.TerminateSessionResponse{Ok: false, Error: err.Error()}, nil
+	}
+	return &jellyfinv1.TerminateSessionResponse{Ok: true}, nil
 }
 
 func (m *Module) connectCoreAndSubscribe() {
@@ -508,7 +646,7 @@ func (m *Module) subscribeImportEvents() {
 	if mc == nil {
 		return
 	}
-	for _, et := range []string{"download.completed", "media.imported", contracts.EventFileImported} {
+	for _, et := range []string{"download.completed", contracts.EventFileImported} {
 		ch, cancel, err := mc.Events.Subscribe(context.Background(), et)
 		if err != nil {
 			slog.Debug("jellyfin: subscribe failed", "type", et, "error", err)
