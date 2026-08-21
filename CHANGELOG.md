@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] — 2026-08-20
+
+### Added
+
+- **Userdata handoff**: sync Jellyfin UserData (progress / watched / favorites) into MuxCore
+  `userdata-local` (or publish `userdata.jellyfin.synced` when no URL is set)
+- Optional MuxCore → Jellyfin push (`USERDATA_PUSH_TO_JELLYFIN=1`, `POST /userdata/from-muxcore`)
+- Periodic pull when `USERDATA_SYNC=1` (`USERDATA_SYNC_INTERVAL_SECONDS`, default 300)
+- Live mirror of webhook/session playback events into MuxCore userdata while sync is enabled
+- HTTP: `GET|POST /userdata/sync`, `POST|PUT /userdata/from-muxcore`, `GET /userdata/status`
+- Env aliases: `JELLYFIN_URL` (= `JELLYFIN_BASE_URL`), `USERDATA_LOCAL_URL`, `USERDATA_USER_MAP`
+- Capability `userdata.sync`
 
 ## [0.2.4] — 2026-08-10
 
@@ -37,4 +49,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thin Jellyfin bridge: `RefreshLibrary`, `PlayURL`, `Status`
 - Settings for `base_url` / `api_key`
 - HTTP webhook → event bus; `healthz`
-- Refresh on `download.completed` / `media.imported`
+- Refresh on `download.completed` / `media.file.imported`

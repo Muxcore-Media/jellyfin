@@ -4,7 +4,8 @@
 
 | Module Version | Core Version | Status |
 |----------------|-------------|--------|
-| v0.2.0         | v0.4.0+     | Current |
+| v0.3.0         | v0.4.0+     | Current |
+| v0.2.0         | v0.4.0+     | Superseded |
 | v0.1.0         | v0.4.0+     | Superseded |
 
 ## Contracts
@@ -18,7 +19,7 @@ Jellyfin-specific; other playback backends are not expected to share the same RP
 | `JellyfinBridge` gRPC | `proto/jellyfinv1` | Current |
 | Shared playback contract | — | Not planned until a second backend needs it |
 
-Capabilities advertised: `playback.jellyfin`, `playback`, `settings`.
+Capabilities advertised: `playback.jellyfin`, `playback`, `userdata.sync`, `settings`.
 
 ## Breaking Changes
 

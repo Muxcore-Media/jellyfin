@@ -86,8 +86,17 @@ type jfItem struct {
 	Name           string            `json:"Name"`
 	Type           string            `json:"Type"`
 	Path           string            `json:"Path"`
+	Size           int64             `json:"Size"`
+	ParentId       string            `json:"ParentId"`
+	Width          int               `json:"Width"`
+	Height         int               `json:"Height"`
 	ProviderIds    map[string]string `json:"ProviderIds"`
 	ProductionYear int               `json:"ProductionYear"`
+}
+
+type jfVirtualFolder struct {
+	Name string `json:"Name"`
+	Id   string `json:"Id"`
 }
 
 type jfItemsResponse struct {
@@ -98,7 +107,7 @@ func (m *Module) listJellyfinItems(ctx context.Context) ([]jfItem, error) {
 	q := url.Values{}
 	q.Set("Recursive", "true")
 	q.Set("IncludeItemTypes", "Movie,Series,Episode")
-	q.Set("Fields", "Path,ProviderIds")
+	q.Set("Fields", "Path,ProviderIds,Size,ParentId,Width,Height")
 	q.Set("EnableTotalRecordCount", "false")
 	body, code, err := m.jellyfinGET(ctx, "/Items?"+q.Encode())
 	if err != nil {
@@ -114,16 +123,40 @@ func (m *Module) listJellyfinItems(ctx context.Context) ([]jfItem, error) {
 	return raw.Items, nil
 }
 
+func (m *Module) listJellyfinVirtualFolders(ctx context.Context) ([]jfVirtualFolder, error) {
+	body, code, err := m.jellyfinGET(ctx, "/Library/VirtualFolders")
+	if err != nil {
+		return nil, err
+	}
+	if code != http.StatusOK {
+		return nil, fmt.Errorf("jellyfin /Library/VirtualFolders status %d", code)
+	}
+	var folders []jfVirtualFolder
+	if err := json.Unmarshal(body, &folders); err != nil {
+		return nil, err
+	}
+	return folders, nil
+}
+
 type jfSession struct {
 	Id             string  `json:"Id"`
 	UserId         string  `json:"UserId"`
 	UserName       string  `json:"UserName"`
+	Client         string  `json:"Client"`
+	DeviceName     string  `json:"DeviceName"`
+	RemoteEndPoint string  `json:"RemoteEndPoint"`
+	AppName        string  `json:"AppName"`
 	NowPlayingItem *jfItem `json:"NowPlayingItem"`
 	PlayState      *struct {
 		PositionTicks int64  `json:"PositionTicks"`
 		IsPaused      bool   `json:"IsPaused"`
 		PlayMethod    string `json:"PlayMethod"`
 	} `json:"PlayState"`
+	TranscodingInfo *struct {
+		CompletionPercentage float64 `json:"CompletionPercentage"`
+		Width                int     `json:"Width"`
+		Height               int     `json:"Height"`
+	} `json:"TranscodingInfo"`
 }
 
 func (m *Module) listSessions(ctx context.Context) ([]jfSession, error) {

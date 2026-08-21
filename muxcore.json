@@ -1,7 +1,7 @@
 {
   "name": "Jellyfin Playback Bridge",
-  "description": "Jellyfin bridge \u2014 library refresh/sync, playback session events, and external play deep-links",
-  "version": "0.2.4",
+  "description": "Jellyfin bridge \u2014 library refresh/sync, playback session events, userdata progress/favorites handoff, and external play deep-links",
+  "version": "0.3.0",
   "author": "MuxCore",
   "roles": [
     "playback"
@@ -9,6 +9,7 @@
   "capabilities": [
     "playback.jellyfin",
     "playback",
+    "userdata.sync",
     "settings"
   ],
   "contracts": [],

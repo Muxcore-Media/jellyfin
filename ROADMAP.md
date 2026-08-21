@@ -12,4 +12,5 @@
 ## Remaining
 
 - [x] Admin-ui / media-ui surfaces for status, refresh, play links
+- [x] Jellyfin ↔ MuxCore userdata handoff (progress/favorites; `USERDATA_SYNC`)
 - [ ] Shared playback contract package (only if other playback modules need it)

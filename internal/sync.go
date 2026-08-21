@@ -131,6 +131,8 @@ func (m *Module) SyncLibrary(ctx context.Context, req *jellyfinv1.SyncLibraryReq
 		}
 	}
 
+	libNames := m.jellyfinLibraryNameMap(ctx)
+
 	if dir == "jellyfin" || dir == "both" || dir == "muxcore" {
 		for _, it := range items {
 			reason := ""
@@ -192,6 +194,7 @@ func (m *Module) SyncLibrary(ctx context.Context, req *jellyfinv1.SyncLibraryReq
 					continue
 				}
 				resp.Upserted++
+				m.publishCatalogFromJFItem(ctx, libNames, it)
 			}
 		}
 	}
