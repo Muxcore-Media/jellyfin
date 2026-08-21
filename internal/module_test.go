@@ -14,6 +14,7 @@ import (
 	"time"
 
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
@@ -206,7 +207,7 @@ func TestWebhookAuthAndPlaybackEvents(t *testing.T) {
 		if typ == "jellyfin.playbackstart" {
 			hasJF = true
 		}
-		if typ == "playback.started" {
+		if typ == playbackevents.EventPlaybackStarted {
 			hasPB = true
 			msg, err := playbackv1.UnmarshalSessionEvent(raws[i])
 			if err != nil {

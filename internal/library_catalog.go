@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
@@ -50,7 +51,7 @@ func (m *Module) publishLibraryCatalogEvent(ctx context.Context, action string, 
 	if err != nil {
 		return
 	}
-	if err := m.publishEvent(ctx, "playback.library.item", payload); err != nil {
+	if err := m.publishEvent(ctx, playbackevents.EventPlaybackLibraryItem, payload); err != nil {
 		// mesh optional in tests
 		_ = err
 	}

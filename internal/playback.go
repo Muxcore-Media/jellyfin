@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
@@ -83,11 +84,11 @@ func (m *Module) publishPlaybackFromWebhook(ctx context.Context, notif string, p
 	var eventType string
 	switch strings.ToLower(notif) {
 	case "playbackstart":
-		eventType = "playback.started"
+		eventType = playbackevents.EventPlaybackStarted
 	case "playbackprogress":
-		eventType = "playback.progress"
+		eventType = playbackevents.EventPlaybackProgress
 	case "playbackstop":
-		eventType = "playback.stopped"
+		eventType = playbackevents.EventPlaybackStopped
 	default:
 		return
 	}
@@ -137,7 +138,7 @@ func (m *Module) publishPlaybackFromWebhook(ctx context.Context, notif string, p
 	}
 	enrichPlaybackFromMap(&ev, payload)
 	m.publishPlayback(ctx, eventType, ev)
-	m.applyPlaybackToUserdata(ctx, ev, eventType == "playback.stopped")
+	m.applyPlaybackToUserdata(ctx, ev, eventType == playbackevents.EventPlaybackStopped)
 }
 
 func (m *Module) publishPlayback(ctx context.Context, eventType string, ev playbackEventPayload) {
@@ -269,10 +270,10 @@ func (m *Module) pollSessionsOnce() {
 		ev.StreamResolution = streamResolutionFromJFSession(s)
 		switch {
 		case prev == "":
-			m.publishPlayback(ctx, "playback.started", ev)
+			m.publishPlayback(ctx, playbackevents.EventPlaybackStarted, ev)
 			m.applyPlaybackToUserdata(ctx, ev, false)
 		default:
-			m.publishPlayback(ctx, "playback.progress", ev)
+			m.publishPlayback(ctx, playbackevents.EventPlaybackProgress, ev)
 			m.applyPlaybackToUserdata(ctx, ev, false)
 		}
 	}
@@ -282,7 +283,7 @@ func (m *Module) pollSessionsOnce() {
 			delete(m.sessionSeen, key)
 			// stopped event without item details when session disappears
 			m.mu.Unlock()
-			m.publishPlayback(ctx, "playback.stopped", playbackEventPayload{SessionID: key})
+			m.publishPlayback(ctx, playbackevents.EventPlaybackStopped, playbackEventPayload{SessionID: key})
 			m.mu.Lock()
 		}
 	}

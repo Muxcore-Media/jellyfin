@@ -5,14 +5,16 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 )
 
 func TestPluginEventType(t *testing.T) {
 	raw := map[string]any{"state": "playing"}
-	if got := pluginEventType("progress", raw); got != "playback.progress" {
+	if got := pluginEventType("progress", raw); got != playbackevents.EventPlaybackProgress {
 		t.Fatalf("event name: %q", got)
 	}
-	if got := pluginEventType("", map[string]any{"state": "stopped"}); got != "playback.stopped" {
+	if got := pluginEventType("", map[string]any{"state": "stopped"}); got != playbackevents.EventPlaybackStopped {
 		t.Fatalf("state: %q", got)
 	}
 }
@@ -32,7 +34,7 @@ func TestHandlePluginSSEStopped(t *testing.T) {
 	m.handlePluginSSEData("stopped", `{"sessionId":"sess-9","state":"stopped"}`)
 	mu.Lock()
 	defer mu.Unlock()
-	if lastType != "playback.stopped" {
+	if lastType != playbackevents.EventPlaybackStopped {
 		t.Fatalf("type %q", lastType)
 	}
 }
@@ -41,7 +43,7 @@ func TestHandlePluginSSEPlayingJSON(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{
 		"sessionId": "s1", "itemId": "i1", "userId": "u1", "state": "playing", "positionTicks": 100000000,
 	})
-	if got := pluginEventType("playing", map[string]any{"state": "playing"}); got != "playback.started" {
+	if got := pluginEventType("playing", map[string]any{"state": "playing"}); got != playbackevents.EventPlaybackStarted {
 		t.Fatalf("got %q", got)
 	}
 	_ = raw
