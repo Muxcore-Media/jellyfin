@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 )
 
 func TestPublishLibraryCatalogEvent(t *testing.T) {
 	var published bool
 	testPublishHook = func(_ context.Context, eventType, _ string, payload []byte) error {
-		if eventType != "playback.library.item" {
+		if eventType != playbackevents.EventPlaybackLibraryItem {
 			t.Fatalf("event: %s", eventType)
 		}
 		published = len(payload) > 0
@@ -30,7 +32,7 @@ func TestPublishLibraryCatalogEvent(t *testing.T) {
 func TestHandlePluginLibrarySSE(t *testing.T) {
 	var action string
 	testPublishHook = func(_ context.Context, eventType, _ string, payload []byte) error {
-		if eventType != "playback.library.item" {
+		if eventType != playbackevents.EventPlaybackLibraryItem {
 			return nil
 		}
 		var raw map[string]any

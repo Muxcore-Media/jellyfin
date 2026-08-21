@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 )
 
 func (m *Module) sseLoop() {
@@ -138,7 +140,7 @@ func (m *Module) handlePluginSSEData(eventName, data string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if eventType == "playback.stopped" {
+	if eventType == playbackevents.EventPlaybackStopped {
 		sessionID := stringField(raw, "sessionId", "session_id", "SessionId")
 		if sessionID == "" {
 			return
@@ -155,20 +157,20 @@ func (m *Module) handlePluginSSEData(eventName, data string) {
 func pluginEventType(eventName string, raw map[string]any) string {
 	switch strings.ToLower(strings.TrimSpace(eventName)) {
 	case "playing", "session.start":
-		return "playback.started"
+		return playbackevents.EventPlaybackStarted
 	case "progress", "paused":
-		return "playback.progress"
+		return playbackevents.EventPlaybackProgress
 	case "stopped", "session.end":
-		return "playback.stopped"
+		return playbackevents.EventPlaybackStopped
 	}
 	state := strings.ToLower(stringField(raw, "state", "State"))
 	switch state {
 	case "playing", "started", "start":
-		return "playback.started"
+		return playbackevents.EventPlaybackStarted
 	case "paused", "progress":
-		return "playback.progress"
+		return playbackevents.EventPlaybackProgress
 	case "stopped", "stop", "idle":
-		return "playback.stopped"
+		return playbackevents.EventPlaybackStopped
 	}
 	return ""
 }
@@ -241,13 +243,13 @@ func (m *Module) trackAndPublish(ctx context.Context, eventType, key string, ev 
 	if key == "" {
 		key = ev.SessionID
 	}
-	if eventType == "playback.started" {
+	if eventType == playbackevents.EventPlaybackStarted {
 		m.mu.Lock()
 		if m.sessionSeen[key] == "" {
 			m.sessionSeen[key] = "playing"
 		}
 		m.mu.Unlock()
-	} else if eventType == "playback.progress" {
+	} else if eventType == playbackevents.EventPlaybackProgress {
 		state := "playing"
 		if ev.IsPaused {
 			state = "paused"
@@ -257,7 +259,7 @@ func (m *Module) trackAndPublish(ctx context.Context, eventType, key string, ev 
 		m.mu.Unlock()
 	}
 	m.publishPlayback(ctx, eventType, ev)
-	if eventType != "playback.stopped" {
+	if eventType != playbackevents.EventPlaybackStopped {
 		m.applyPlaybackToUserdata(ctx, ev, false)
 	}
 }
