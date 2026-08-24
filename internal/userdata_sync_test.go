@@ -14,10 +14,10 @@ import (
 
 func TestUserdataSyncPullFromJellyfin(t *testing.T) {
 	var (
-		mu       sync.Mutex
-		putBody  []byte
-		putUser  string
-		jfHits   []string
+		mu      sync.Mutex
+		putBody []byte
+		putUser string
+		jfHits  []string
 	)
 	jf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -103,8 +103,8 @@ func TestUserdataSyncPullFromJellyfin(t *testing.T) {
 
 func TestUserdataPushToJellyfin(t *testing.T) {
 	var (
-		mu     sync.Mutex
-		posts  []string
+		mu    sync.Mutex
+		posts []string
 	)
 	jf := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
