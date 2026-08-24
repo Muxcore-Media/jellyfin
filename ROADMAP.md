@@ -13,4 +13,5 @@
 
 - [x] Admin-ui / media-ui surfaces for status, refresh, play links
 - [x] Jellyfin ↔ MuxCore userdata handoff (progress/favorites; `USERDATA_SYNC`)
-- [ ] Shared playback contract package (only if other playback modules need it)
+
+**Deferred (not open):** `contracts-playback` stays unshipped until a second playback backend (e.g. Plex) is committed — see workspace `MASTER-ROADMAP.md` §1.
