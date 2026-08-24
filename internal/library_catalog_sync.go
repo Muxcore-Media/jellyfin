@@ -38,11 +38,11 @@ func (m *Module) publishCatalogFromJFItem(ctx context.Context, libNames map[stri
 		"size":             it.Size,
 		"parentId":         it.ParentId,
 		"library_name":     libraryName,
-		"libraryName":       libraryName,
-		"file_size_bytes":   it.Size,
-		"height":            it.Height,
-		"width":             it.Width,
-		"video_resolution":  playbackv1.NormalizeStreamResolution(it.Height, it.Width, ""),
+		"libraryName":      libraryName,
+		"file_size_bytes":  it.Size,
+		"height":           it.Height,
+		"width":            it.Width,
+		"video_resolution": playbackv1.NormalizeStreamResolution(it.Height, it.Width, ""),
 	})
 }
 

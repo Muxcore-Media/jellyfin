@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
+	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
 )
 
@@ -232,10 +232,10 @@ func TestItemLinkCRUDAndSync(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		switch {
-		case r.URL.Path == "/Items":
+		switch r.URL.Path {
+		case "/Items":
 			_ = json.NewEncoder(w).Encode(jfItemsResponse{Items: items})
-		case r.URL.Path == "/System/Info":
+		case "/System/Info":
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		default:
 			http.NotFound(w, r)

@@ -63,7 +63,7 @@ func (m *Module) runPluginSSE() error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("plugin sse not available (404)")
 	}
@@ -243,13 +243,14 @@ func (m *Module) trackAndPublish(ctx context.Context, eventType, key string, ev 
 	if key == "" {
 		key = ev.SessionID
 	}
-	if eventType == playbackevents.EventPlaybackStarted {
+	switch eventType {
+	case playbackevents.EventPlaybackStarted:
 		m.mu.Lock()
 		if m.sessionSeen[key] == "" {
 			m.sessionSeen[key] = "playing"
 		}
 		m.mu.Unlock()
-	} else if eventType == playbackevents.EventPlaybackProgress {
+	case playbackevents.EventPlaybackProgress:
 		state := "playing"
 		if ev.IsPaused {
 			state = "paused"
