@@ -38,11 +38,11 @@ type muxFavoriteEntry struct {
 }
 
 type muxUserdataBlob struct {
-	Progress  map[string]muxProgressEntry  `json:"progress"`
-	Favorites map[string]muxFavoriteEntry  `json:"favorites"`
-	UpdatedAt string                       `json:"updated_at,omitempty"`
-	UserID    string                       `json:"user_id,omitempty"`
-	TenantID  string                       `json:"tenant_id,omitempty"`
+	Progress  map[string]muxProgressEntry `json:"progress"`
+	Favorites map[string]muxFavoriteEntry `json:"favorites"`
+	UpdatedAt string                      `json:"updated_at,omitempty"`
+	UserID    string                      `json:"user_id,omitempty"`
+	TenantID  string                      `json:"tenant_id,omitempty"`
 }
 
 type jfUser struct {
@@ -59,17 +59,17 @@ type jfUserData struct {
 }
 
 type jfItemWithUserData struct {
-	ID               string            `json:"Id"`
-	Name             string            `json:"Name"`
-	Type             string            `json:"Type"`
-	Path             string            `json:"Path"`
-	ProductionYear   int               `json:"ProductionYear"`
-	RunTimeTicks     int64             `json:"RunTimeTicks"`
-	ProviderIds      map[string]string `json:"ProviderIds"`
-	UserData         *jfUserData       `json:"UserData"`
-	SeriesName       string            `json:"SeriesName"`
-	IndexNumber      int               `json:"IndexNumber"`
-	ParentIndexNumber int              `json:"ParentIndexNumber"`
+	ID                string            `json:"Id"`
+	Name              string            `json:"Name"`
+	Type              string            `json:"Type"`
+	Path              string            `json:"Path"`
+	ProductionYear    int               `json:"ProductionYear"`
+	RunTimeTicks      int64             `json:"RunTimeTicks"`
+	ProviderIds       map[string]string `json:"ProviderIds"`
+	UserData          *jfUserData       `json:"UserData"`
+	SeriesName        string            `json:"SeriesName"`
+	IndexNumber       int               `json:"IndexNumber"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"`
 }
 
 type jfItemsUserDataResponse struct {
@@ -353,7 +353,7 @@ func (m *Module) putUserdataLocal(ctx context.Context, base, userID string, body
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("userdata-local PUT status %d", resp.StatusCode)

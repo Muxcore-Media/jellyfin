@@ -268,8 +268,8 @@ func (m *Module) pollSessionsOnce() {
 			ev.PlayMethod = strings.TrimSpace(s.PlayState.PlayMethod)
 		}
 		ev.StreamResolution = streamResolutionFromJFSession(s)
-		switch {
-		case prev == "":
+		switch prev {
+		case "":
 			m.publishPlayback(ctx, playbackevents.EventPlaybackStarted, ev)
 			m.applyPlaybackToUserdata(ctx, ev, false)
 		default:
