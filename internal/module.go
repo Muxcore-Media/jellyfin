@@ -245,7 +245,7 @@ func (m *Module) Init(ctx context.Context) error {
 	m.lis = lis
 	httpLis, err := net.Listen("tcp", m.httpAddr)
 	if err != nil {
-		lis.Close()
+		_ = lis.Close()
 		return fmt.Errorf("listen HTTP %s: %w", m.httpAddr, err)
 	}
 	m.httpLis = httpLis
@@ -306,7 +306,7 @@ func (m *Module) Stop(ctx context.Context) error {
 	m.mc = nil
 	m.mu.Unlock()
 	if mc != nil {
-		mc.Close()
+		_ = mc.Close()
 	}
 	return nil
 }
@@ -611,7 +611,7 @@ func (m *Module) connectCoreAndSubscribe() {
 		}
 		m.mu.Lock()
 		if m.mc != nil {
-			m.mc.Close()
+			_ = m.mc.Close()
 		}
 		m.mc = c
 		m.mu.Unlock()
@@ -706,6 +706,6 @@ func discardBody(resp *http.Response) {
 	if resp == nil || resp.Body == nil {
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 }

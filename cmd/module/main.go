@@ -53,7 +53,7 @@ func runHealthCheck() int {
 		fmt.Fprintf(os.Stderr, "health-check: %v\n", err)
 		return 1
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintf(os.Stderr, "health-check: status %d\n", resp.StatusCode)
 		return 1

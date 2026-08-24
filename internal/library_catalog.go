@@ -10,16 +10,16 @@ import (
 )
 
 type libraryCatalogPayload struct {
-	Action        string `json:"action"`
-	ServerID      string `json:"server_id"`
-	ServerType    string `json:"server_type"`
-	ItemID        string `json:"item_id"`
-	MediaType     string `json:"media_type,omitempty"`
-	ParentID      string `json:"parent_id,omitempty"`
-	MuxcoreID     string `json:"muxcore_id,omitempty"`
-	Title         string `json:"title,omitempty"`
-	MediaPath     string `json:"media_path,omitempty"`
-	FileSizeBytes int64  `json:"file_size_bytes,omitempty"`
+	Action          string `json:"action"`
+	ServerID        string `json:"server_id"`
+	ServerType      string `json:"server_type"`
+	ItemID          string `json:"item_id"`
+	MediaType       string `json:"media_type,omitempty"`
+	ParentID        string `json:"parent_id,omitempty"`
+	MuxcoreID       string `json:"muxcore_id,omitempty"`
+	Title           string `json:"title,omitempty"`
+	MediaPath       string `json:"media_path,omitempty"`
+	FileSizeBytes   int64  `json:"file_size_bytes,omitempty"`
 	VideoResolution string `json:"video_resolution,omitempty"`
 }
 
@@ -36,16 +36,16 @@ func (m *Module) publishLibraryCatalogEvent(ctx context.Context, action string, 
 	width := int(int64Field(raw, "width", "Width", "video_width", "videoWidth"))
 	videoResolution := playbackv1.NormalizeStreamResolution(height, width, stringField(raw, "video_resolution", "videoResolution"))
 	payload, err := json.Marshal(libraryCatalogPayload{
-		Action:        action,
-		ServerID:      m.id,
-		ServerType:    "jellyfin",
-		ItemID:        itemID,
-		MediaType:     mediaType,
-		ParentID:      stringField(raw, "parentId", "parent_id", "ParentId"),
-		MuxcoreID:     m.muxcoreIDForJellyfin(itemID),
-		Title:         title,
-		MediaPath:     mediaPath,
-		FileSizeBytes: fileSize,
+		Action:          action,
+		ServerID:        m.id,
+		ServerType:      "jellyfin",
+		ItemID:          itemID,
+		MediaType:       mediaType,
+		ParentID:        stringField(raw, "parentId", "parent_id", "ParentId"),
+		MuxcoreID:       m.muxcoreIDForJellyfin(itemID),
+		Title:           title,
+		MediaPath:       mediaPath,
+		FileSizeBytes:   fileSize,
 		VideoResolution: videoResolution,
 	})
 	if err != nil {
