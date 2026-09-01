@@ -296,25 +296,35 @@ func (m *Module) listJellyfinUsers(ctx context.Context) ([]jfUser, error) {
 }
 
 func (m *Module) listJellyfinUserItems(ctx context.Context, userID, filter string) ([]jfItemWithUserData, error) {
-	q := url.Values{}
-	q.Set("Recursive", "true")
-	q.Set("IncludeItemTypes", "Movie,Series,Episode")
-	q.Set("Fields", "Path,ProviderIds,UserData,SeriesName")
-	q.Set("EnableTotalRecordCount", "false")
-	q.Set("Filters", filter)
-	path := fmt.Sprintf("/Users/%s/Items?%s", url.PathEscape(userID), q.Encode())
-	body, code, err := m.jellyfinGET(ctx, path)
-	if err != nil {
-		return nil, err
+	var all []jfItemWithUserData
+	basePath := fmt.Sprintf("/Users/%s/Items", url.PathEscape(userID))
+	for start := 0; ; start += jfItemsPageSize {
+		q := url.Values{}
+		q.Set("Recursive", "true")
+		q.Set("IncludeItemTypes", jfIncludeItemTypes)
+		q.Set("Fields", "Path,ProviderIds,UserData,SeriesName")
+		q.Set("EnableTotalRecordCount", "false")
+		q.Set("Filters", filter)
+		q.Set("StartIndex", strconv.Itoa(start))
+		q.Set("Limit", strconv.Itoa(jfItemsPageSize))
+		path := basePath + "?" + q.Encode()
+		body, code, err := m.jellyfinGET(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		if code != http.StatusOK {
+			return nil, fmt.Errorf("jellyfin %s status %d", path, code)
+		}
+		var raw jfItemsUserDataResponse
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, err
+		}
+		all = append(all, raw.Items...)
+		if len(raw.Items) < jfItemsPageSize {
+			break
+		}
 	}
-	if code != http.StatusOK {
-		return nil, fmt.Errorf("jellyfin %s status %d", path, code)
-	}
-	var raw jfItemsUserDataResponse
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, err
-	}
-	return raw.Items, nil
+	return all, nil
 }
 
 func (m *Module) writeMuxUserdata(ctx context.Context, userID string, blob muxUserdataBlob) error {
@@ -528,11 +538,12 @@ func (m *Module) applyPlaybackToUserdata(ctx context.Context, ev playbackEventPa
 	if stopped && ev.PositionSeconds == 0 && ev.DurationSeconds > 0 {
 		watched = true
 	}
+	kind := mediaKindFromJF(ev.MediaType)
 	entry := muxProgressEntry{
 		ID:          muxID,
-		Kind:        "other",
+		Kind:        kind,
 		Title:       firstNonEmpty(ev.Title, muxID),
-		Href:        muxHref("other", muxID),
+		Href:        muxHref(kind, muxID),
 		PositionSec: ev.PositionSeconds,
 		DurationSec: ev.DurationSeconds,
 		UpdatedAt:   time.Now().UTC().Format(time.RFC3339),
@@ -556,6 +567,10 @@ func (m *Module) handleUserdataSync(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !m.checkWebhookAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	res, err := m.syncUserdataFromJellyfin(ctx)
@@ -572,10 +587,14 @@ func (m *Module) handleUserdataFromMuxcore(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !m.checkWebhookAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	m.mu.RLock()
 	push := m.userdataPushToJF
 	m.mu.RUnlock()
-	if !push && !envTruthy(r.URL.Query().Get("force")) {
+	if !push {
 		http.Error(w, `{"error":"userdata push to jellyfin disabled; set USERDATA_PUSH_TO_JELLYFIN=1"}`, http.StatusServiceUnavailable)
 		return
 	}
@@ -607,6 +626,10 @@ func (m *Module) handleUserdataFromMuxcore(w http.ResponseWriter, r *http.Reques
 }
 
 func (m *Module) handleUserdataStatus(w http.ResponseWriter, r *http.Request) {
+	if !m.checkWebhookAuth(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")

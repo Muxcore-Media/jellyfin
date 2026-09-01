@@ -12,6 +12,7 @@ service JellyfinBridge {
   rpc DeleteItemLink(DeleteItemLinkRequest) returns (DeleteItemLinkResponse);
   rpc MatchItem(MatchItemRequest) returns (MatchItemResponse);
   rpc SyncLibrary(SyncLibraryRequest) returns (SyncLibraryResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc TerminateSession(TerminateSessionRequest) returns (TerminateSessionResponse);
 }
 
@@ -39,6 +40,27 @@ message StatusResponse {
   string conflict_mode = 3;
   int32 item_links = 4;
   bool sessions_poll_enabled = 5;
+  bool userdata_sync = 6;
+  bool sse_connected = 7;
+}
+
+message ListSessionsRequest {}
+
+message Session {
+  string id = 1;
+  string user_id = 2;
+  string user_name = 3;
+  string item_id = 4;
+  string item_title = 5;
+  int64 position_ticks = 6;
+  int64 position_seconds = 7;
+  bool paused = 8;
+  string device = 9;
+  string client = 10;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
 }
 
 message ItemLink {

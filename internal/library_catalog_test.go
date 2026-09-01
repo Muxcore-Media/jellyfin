@@ -11,21 +11,26 @@ import (
 
 func TestPublishLibraryCatalogEvent(t *testing.T) {
 	var published bool
-	testPublishHook = func(_ context.Context, eventType, _ string, payload []byte) error {
+	var payload map[string]any
+	testPublishHook = func(_ context.Context, eventType, _ string, raw []byte) error {
 		if eventType != playbackevents.EventPlaybackLibraryItem {
 			t.Fatalf("event: %s", eventType)
 		}
-		published = len(payload) > 0
+		published = len(raw) > 0
+		_ = json.Unmarshal(raw, &payload)
 		return nil
 	}
 	t.Cleanup(func() { testPublishHook = nil })
 
 	m := NewModule(Config{ID: "jf1", GRPCAddr: "127.0.0.1:0", HTTPAddr: "127.0.0.1:0"})
 	m.publishLibraryCatalogEvent(context.Background(), "added", map[string]any{
-		"itemId": "abc", "itemType": "Movie",
+		"itemId": "abc", "itemType": "Movie", "library_name": "Movies",
 	})
 	if !published {
 		t.Fatal("expected publish")
+	}
+	if payload["library_name"] != "Movies" {
+		t.Fatalf("library_name: %#v", payload)
 	}
 }
 

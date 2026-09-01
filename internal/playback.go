@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -45,16 +46,19 @@ func (m *Module) checkWebhookAuth(r *http.Request) bool {
 	secret := m.webhookSecret
 	m.mu.RUnlock()
 	if secret == "" {
-		return true
+		return false
 	}
-	if r.Header.Get(headerWebhookSecret) == secret {
-		return true
+	got := strings.TrimSpace(r.Header.Get(headerWebhookSecret))
+	if got == "" {
+		auth := r.Header.Get("Authorization")
+		if strings.HasPrefix(auth, "Bearer ") {
+			got = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		}
 	}
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == secret {
-		return true
+	if got == "" {
+		return false
 	}
-	return false
+	return subtle.ConstantTimeCompare([]byte(got), []byte(secret)) == 1
 }
 
 func (m *Module) handleWebhook(w http.ResponseWriter, r *http.Request) {

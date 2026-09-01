@@ -248,6 +248,31 @@ func (m *Module) SyncLibrary(ctx context.Context, req *jellyfinv1.SyncLibraryReq
 		}
 	}
 
+	// Remove links whose Jellyfin items no longer exist.
+	for _, ex := range existing {
+		if ex.JellyfinID == "" {
+			continue
+		}
+		if _, ok := jfByID[ex.JellyfinID]; ok {
+			continue
+		}
+		resp.Removed++
+		if dry {
+			continue
+		}
+		m.mu.Lock()
+		if ex.MuxcoreID != "" {
+			delete(m.links, ex.MuxcoreID)
+		}
+		delete(m.links, "jf:"+ex.JellyfinID)
+		m.mu.Unlock()
+	}
+	if !dry && resp.Removed > 0 {
+		if err := m.persistDurable(); err != nil {
+			resp.Errors = append(resp.Errors, err.Error())
+		}
+	}
+
 	return resp, nil
 }
 
