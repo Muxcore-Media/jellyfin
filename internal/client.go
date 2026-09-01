@@ -7,7 +7,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+)
+
+const (
+	jfItemsPageSize    = 100
+	jfIncludeItemTypes = "Movie,Series,Episode,Audio,MusicAlbum,AudioBook,Book"
 )
 
 func (m *Module) jellyfinGET(ctx context.Context, path string) ([]byte, int, error) {
@@ -104,23 +110,32 @@ type jfItemsResponse struct {
 }
 
 func (m *Module) listJellyfinItems(ctx context.Context) ([]jfItem, error) {
-	q := url.Values{}
-	q.Set("Recursive", "true")
-	q.Set("IncludeItemTypes", "Movie,Series,Episode")
-	q.Set("Fields", "Path,ProviderIds,Size,ParentId,Width,Height")
-	q.Set("EnableTotalRecordCount", "false")
-	body, code, err := m.jellyfinGET(ctx, "/Items?"+q.Encode())
-	if err != nil {
-		return nil, err
+	var all []jfItem
+	for start := 0; ; start += jfItemsPageSize {
+		q := url.Values{}
+		q.Set("Recursive", "true")
+		q.Set("IncludeItemTypes", jfIncludeItemTypes)
+		q.Set("Fields", "Path,ProviderIds,Size,ParentId,Width,Height")
+		q.Set("EnableTotalRecordCount", "false")
+		q.Set("StartIndex", strconv.Itoa(start))
+		q.Set("Limit", strconv.Itoa(jfItemsPageSize))
+		body, code, err := m.jellyfinGET(ctx, "/Items?"+q.Encode())
+		if err != nil {
+			return nil, err
+		}
+		if code != http.StatusOK {
+			return nil, fmt.Errorf("jellyfin /Items status %d", code)
+		}
+		var raw jfItemsResponse
+		if err := json.Unmarshal(body, &raw); err != nil {
+			return nil, err
+		}
+		all = append(all, raw.Items...)
+		if len(raw.Items) < jfItemsPageSize {
+			break
+		}
 	}
-	if code != http.StatusOK {
-		return nil, fmt.Errorf("jellyfin /Items status %d", code)
-	}
-	var raw jfItemsResponse
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, err
-	}
-	return raw.Items, nil
+	return all, nil
 }
 
 func (m *Module) listJellyfinVirtualFolders(ctx context.Context) ([]jfVirtualFolder, error) {
@@ -182,6 +197,12 @@ func mediaKindFromJF(t string) string {
 		return "tv"
 	case "episode":
 		return "episode"
+	case "audio", "musicalbum":
+		return "music"
+	case "audiobook":
+		return "audiobook"
+	case "book":
+		return "book"
 	default:
 		return "other"
 	}

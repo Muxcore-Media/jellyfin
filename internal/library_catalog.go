@@ -18,6 +18,7 @@ type libraryCatalogPayload struct {
 	ParentID        string `json:"parent_id,omitempty"`
 	MuxcoreID       string `json:"muxcore_id,omitempty"`
 	Title           string `json:"title,omitempty"`
+	LibraryName     string `json:"library_name,omitempty"`
 	MediaPath       string `json:"media_path,omitempty"`
 	FileSizeBytes   int64  `json:"file_size_bytes,omitempty"`
 	VideoResolution string `json:"video_resolution,omitempty"`
@@ -44,6 +45,7 @@ func (m *Module) publishLibraryCatalogEvent(ctx context.Context, action string, 
 		ParentID:        stringField(raw, "parentId", "parent_id", "ParentId"),
 		MuxcoreID:       m.muxcoreIDForJellyfin(itemID),
 		Title:           title,
+		LibraryName:     stringField(raw, "library_name", "libraryName", "LibraryName"),
 		MediaPath:       mediaPath,
 		FileSizeBytes:   fileSize,
 		VideoResolution: videoResolution,

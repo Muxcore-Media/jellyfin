@@ -279,14 +279,14 @@ func (m *Module) setSSEConnected(v bool) {
 
 func (m *Module) sseConnectedNow() bool {
 	m.sseMu.RLock()
-	defer m.sseMu.Unlock()
+	defer m.sseMu.RUnlock()
 	return m.sseConnected
 }
 
 func envSSEEnabled(v string) bool {
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return true
+		return false
 	}
 	switch strings.ToLower(v) {
 	case "1", "true", "yes", "on":

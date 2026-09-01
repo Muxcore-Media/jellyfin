@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,7 @@ type Module struct {
 	userdataLocalURL string
 	userdataPushToJF bool
 	userdataUserMap  map[string]string
+	playURLStyle     string
 	id               string
 	grpcAddr         string
 	httpAddr         string
@@ -83,6 +85,7 @@ type Config struct {
 	UserdataLocalURL string
 	UserdataPushToJF bool
 	UserdataUserMap  map[string]string
+	PlayURLStyle     string
 }
 
 type durableSettings struct {
@@ -96,6 +99,7 @@ type durableSettings struct {
 	UserdataLocalURL string              `json:"userdata_local_url,omitempty"`
 	UserdataPushToJF bool                `json:"userdata_push_to_jellyfin,omitempty"`
 	UserdataUserMap  map[string]string   `json:"userdata_user_map,omitempty"`
+	PlayURLStyle     string              `json:"play_url_style,omitempty"`
 	Links            map[string]ItemLink `json:"links,omitempty"`
 }
 
@@ -179,6 +183,9 @@ func NewModule(cfg Config) *Module {
 	if cfg.UserdataUserMap == nil {
 		cfg.UserdataUserMap = parseUserMap(os.Getenv("USERDATA_USER_MAP"))
 	}
+	if cfg.PlayURLStyle == "" {
+		cfg.PlayURLStyle = os.Getenv("JELLYFIN_PLAY_URL_STYLE")
+	}
 	m := &Module{
 		id:               cfg.ID,
 		grpcAddr:         cfg.GRPCAddr,
@@ -194,6 +201,7 @@ func NewModule(cfg Config) *Module {
 		userdataLocalURL: strings.TrimRight(strings.TrimSpace(cfg.UserdataLocalURL), "/"),
 		userdataPushToJF: cfg.UserdataPushToJF,
 		userdataUserMap:  cfg.UserdataUserMap,
+		playURLStyle:     normalizePlayURLStyle(cfg.PlayURLStyle),
 		httpCli:          &http.Client{Timeout: 20 * time.Second},
 		links:            map[string]*ItemLink{},
 		stopCh:           make(chan struct{}),
@@ -204,6 +212,30 @@ func NewModule(cfg Config) *Module {
 		m.userdataUserMap = map[string]string{}
 	}
 	return m
+}
+
+func normalizePlayURLStyle(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "legacy", "10.8", "hashbang":
+		return "legacy"
+	default:
+		return "modern"
+	}
+}
+
+func formatUserMap(m map[string]string) string {
+	if len(m) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(m))
+	for k, v := range m {
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if k != "" && v != "" {
+			parts = append(parts, k+":"+v)
+		}
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
 }
 
 func normalizeConflict(v string) string {
@@ -373,6 +405,9 @@ func (m *Module) loadDurable() error {
 	if len(s.UserdataUserMap) > 0 && len(m.userdataUserMap) == 0 {
 		m.userdataUserMap = s.UserdataUserMap
 	}
+	if s.PlayURLStyle != "" {
+		m.playURLStyle = normalizePlayURLStyle(s.PlayURLStyle)
+	}
 	m.links = map[string]*ItemLink{}
 	for k, link := range s.Links {
 		cp := link
@@ -394,6 +429,7 @@ func (m *Module) persistDurable() error {
 		UserdataLocalURL: m.userdataLocalURL,
 		UserdataPushToJF: m.userdataPushToJF,
 		UserdataUserMap:  m.userdataUserMap,
+		PlayURLStyle:     m.playURLStyle,
 		Links:            map[string]ItemLink{},
 	}
 	for k, link := range m.links {
@@ -426,6 +462,7 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 	m.mu.RLock()
 	base, key, secret, conflict, poll := m.baseURL, m.apiKey, m.webhookSecret, m.conflictMode, m.sessionsPollSec
 	udSync, udSec, udURL, udPush := m.userdataSync, m.userdataSyncSec, m.userdataLocalURL, m.userdataPushToJF
+	udMap, playStyle := m.userdataUserMap, m.playURLStyle
 	m.mu.RUnlock()
 	syncVal := "0"
 	if udSync {
@@ -471,6 +508,14 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 		{
 			Key: "userdata_push_to_jellyfin", Label: "Push MuxCore→Jellyfin", Type: contracts.SettingTypeString,
 			Value: pushVal, Description: "1 enables companion UI progress push into Jellyfin UserData", Required: false, Group: "Userdata",
+		},
+		{
+			Key: "userdata_user_map", Label: "Userdata User Map", Type: contracts.SettingTypeString,
+			Value: formatUserMap(udMap), Description: "Comma map jfUserId:muxUser or Name:muxUser (USERDATA_USER_MAP)", Required: false, Group: "Userdata",
+		},
+		{
+			Key: "play_url_style", Label: "Play URL Style", Type: contracts.SettingTypeString,
+			Value: playStyle, Description: "modern (10.9+ /web/#/details) or legacy (10.8 #!/details)", Required: false, Group: "Playback",
 		},
 	}
 }
@@ -527,6 +572,14 @@ func (m *Module) updateSetting(key, value string) error {
 		m.mu.Lock()
 		m.userdataPushToJF = envTruthy(value)
 		m.mu.Unlock()
+	case "userdata_user_map", "USERDATA_USER_MAP":
+		m.mu.Lock()
+		m.userdataUserMap = parseUserMap(value)
+		m.mu.Unlock()
+	case "play_url_style", "JELLYFIN_PLAY_URL_STYLE":
+		m.mu.Lock()
+		m.playURLStyle = normalizePlayURLStyle(value)
+		m.mu.Unlock()
 	default:
 		return fmt.Errorf("unknown setting %q", key)
 	}
@@ -543,11 +596,17 @@ func (m *Module) RefreshLibrary(ctx context.Context, req *jellyfinv1.RefreshLibr
 func (m *Module) PlayURL(_ context.Context, req *jellyfinv1.PlayURLRequest) (*jellyfinv1.PlayURLResponse, error) {
 	m.mu.RLock()
 	base := m.baseURL
+	style := m.playURLStyle
 	m.mu.RUnlock()
 	if base == "" || req.GetItemId() == "" {
 		return nil, fmt.Errorf("base_url and item_id required")
 	}
-	url := fmt.Sprintf("%s/web/index.html#!/details?id=%s", base, req.GetItemId())
+	var url string
+	if style == "legacy" {
+		url = fmt.Sprintf("%s/web/index.html#!/details?id=%s", base, req.GetItemId())
+	} else {
+		url = fmt.Sprintf("%s/web/#/details?id=%s", base, req.GetItemId())
+	}
 	return &jellyfinv1.PlayURLResponse{Url: url}, nil
 }
 
@@ -566,7 +625,40 @@ func (m *Module) Status(context.Context, *jellyfinv1.StatusRequest) (*jellyfinv1
 		ConflictMode:        m.conflictMode,
 		ItemLinks:           int32(n),
 		SessionsPollEnabled: m.sessionsPollSec > 0,
+		UserdataSync:        m.userdataSync,
+		SseConnected:        m.sseConnectedNow(),
 	}, nil
+}
+
+func (m *Module) ListSessions(ctx context.Context, _ *jellyfinv1.ListSessionsRequest) (*jellyfinv1.ListSessionsResponse, error) {
+	if !m.configured() {
+		return &jellyfinv1.ListSessionsResponse{}, nil
+	}
+	sessions, err := m.listSessions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*jellyfinv1.Session, 0, len(sessions))
+	for _, s := range sessions {
+		ps := &jellyfinv1.Session{
+			Id:       s.Id,
+			UserId:   s.UserId,
+			UserName: s.UserName,
+			Device:   firstNonEmpty(s.DeviceName, s.Client),
+			Client:   s.Client,
+		}
+		if s.NowPlayingItem != nil {
+			ps.ItemId = s.NowPlayingItem.ID
+			ps.ItemTitle = s.NowPlayingItem.Name
+		}
+		if s.PlayState != nil {
+			ps.PositionTicks = s.PlayState.PositionTicks
+			ps.PositionSeconds = ticksToSeconds(s.PlayState.PositionTicks)
+			ps.Paused = s.PlayState.IsPaused
+		}
+		out = append(out, ps)
+	}
+	return &jellyfinv1.ListSessionsResponse{Sessions: out}, nil
 }
 
 func (m *Module) TerminateSession(ctx context.Context, req *jellyfinv1.TerminateSessionRequest) (*jellyfinv1.TerminateSessionResponse, error) {
@@ -616,8 +708,11 @@ func (m *Module) connectCoreAndSubscribe() {
 		m.mc = c
 		m.mu.Unlock()
 		slog.Info("jellyfin: connected to core mesh", "addr", addr)
-		m.subscribeImportEvents()
-		return
+		backoff = time.Second
+		if !m.runImportSubscriptions() {
+			return
+		}
+		slog.Warn("jellyfin: core mesh subscriptions closed, redialing")
 	}
 }
 
@@ -641,18 +736,22 @@ func (m *Module) publishEvent(ctx context.Context, eventType string, payload []b
 	return mc.Events.Publish(ctx, eventType, m.id, payload)
 }
 
-func (m *Module) subscribeImportEvents() {
+func (m *Module) runImportSubscriptions() bool {
 	mc := m.eventClient()
 	if mc == nil {
-		return
+		return true
 	}
+	var wg sync.WaitGroup
 	for _, et := range []string{"download.completed", contracts.EventFileImported} {
 		ch, cancel, err := mc.Events.Subscribe(context.Background(), et)
 		if err != nil {
 			slog.Debug("jellyfin: subscribe failed", "type", et, "error", err)
+			cancel()
 			continue
 		}
+		wg.Add(1)
 		go func(events <-chan *eventsv1.Event, eventType string, cancel context.CancelFunc) {
+			defer wg.Done()
 			defer cancel()
 			for evt := range events {
 				if err := m.refreshLibrary(context.Background(), ""); err != nil {
@@ -664,6 +763,21 @@ func (m *Module) subscribeImportEvents() {
 			}
 		}(ch, et, cancel)
 	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-m.stopCh:
+		return false
+	case <-done:
+		return true
+	}
+}
+
+func (m *Module) subscribeImportEvents() {
+	_ = m.runImportSubscriptions()
 }
 
 func (m *Module) handleImportEvent(eventType string, evt *eventsv1.Event) {

@@ -158,8 +158,21 @@ func TestPlayURLAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(resp.Url, "id=xyz") {
+	if !strings.Contains(resp.Url, "/web/#/details?id=xyz") {
 		t.Fatalf("url: %s", resp.Url)
+	}
+	legacy, err := m.PlayURL(context.Background(), &jellyfinv1.PlayURLRequest{ItemId: "xyz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = legacy
+	m.playURLStyle = "legacy"
+	legacyResp, err := m.PlayURL(context.Background(), &jellyfinv1.PlayURLRequest{ItemId: "xyz"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(legacyResp.Url, "#!/details?id=xyz") {
+		t.Fatalf("legacy url: %s", legacyResp.Url)
 	}
 	st, err := m.Status(context.Background(), &jellyfinv1.StatusRequest{})
 	if err != nil || !st.Configured || st.BaseUrl != "http://jf:8096" {

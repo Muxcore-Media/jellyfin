@@ -169,6 +169,7 @@ func TestUserdataHTTPEndpoints(t *testing.T) {
 	m.userdataPushToJF = true
 
 	req := httptest.NewRequest(http.MethodGet, "/userdata/status", nil)
+	req.Header.Set(headerWebhookSecret, "s3cret")
 	rr := httptest.NewRecorder()
 	m.handleUserdataStatus(rr, req)
 	if rr.Code != http.StatusOK {
@@ -181,6 +182,7 @@ func TestUserdataHTTPEndpoints(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/userdata/sync", nil)
+	req.Header.Set(headerWebhookSecret, "s3cret")
 	rr = httptest.NewRecorder()
 	m.handleUserdataSync(rr, req)
 	if rr.Code != http.StatusOK {
@@ -225,6 +227,7 @@ func TestPlaybackMirrorsUserdataWhenEnabled(t *testing.T) {
 	m.applyPlaybackToUserdata(context.Background(), playbackEventPayload{
 		ItemID: "item9", JellyfinItemID: "item9", MuxcoreID: "mc9",
 		UserID: "u1", UserName: "alice", PositionSeconds: 30, DurationSeconds: 100, Title: "T",
+		MediaType: "Movie",
 	}, false)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -246,5 +249,8 @@ func TestPlaybackMirrorsUserdataWhenEnabled(t *testing.T) {
 	p := blob.Progress["mc9"]
 	if p.PositionSec != 30 {
 		t.Fatalf("progress: %+v", p)
+	}
+	if p.Kind != "movie" || p.Href != "/movies/mc9" {
+		t.Fatalf("kind/href: %+v", p)
 	}
 }

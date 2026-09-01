@@ -41,8 +41,9 @@ Do **not** invent a second playback backend or revive `contracts-playback` until
 ## RPCs (`JellyfinBridge`)
 
 - `RefreshLibrary` — POST `/Library/Refresh` (or `POST /Items/{id}/Refresh?Recursive=true` when `item_id` set)
-- `PlayURL` — `{base}/web/index.html#!/details?id={item_id}` deep-link
-- `Status` — configured flag, base URL, conflict mode, link count, sessions-poll flag
+- `PlayURL` — `{base}/web/#/details?id={item_id}` deep-link (Jellyfin 10.9+; set `play_url_style=legacy` for 10.8 `#!/details`)
+- `Status` — configured flag, base URL, conflict mode, link count, sessions-poll flag, userdata sync, SSE connected
+- `ListSessions` — live Jellyfin `/Sessions` snapshot (id, user, item, position, paused, device)
 - `ListItemLinks` / `UpsertItemLink` / `DeleteItemLink` — durable MuxCore ↔ Jellyfin ID map
 - `MatchItem` — match by provider IDs then path; upserts link when found
 - `SyncLibrary` — pull/push reconcile (`direction`: `jellyfin` | `muxcore` | `both`)
@@ -53,10 +54,18 @@ Do **not** invent a second playback backend or revive `contracts-playback` until
 - `GET|POST /userdata/sync` — pull Jellyfin UserData → MuxCore userdata now
 - `POST|PUT /userdata/from-muxcore?user_id=` — push companion blob into Jellyfin (requires push enabled)
 - `GET /userdata/status` — sync flags
+
+All userdata routes and `/webhook` require `JELLYFIN_WEBHOOK_SECRET` (or admin-ui `webhook_secret`).
+When the secret is unset, requests are rejected with 401.
+Send `X-Jellyfin-Webhook-Secret: <secret>` or `Authorization: Bearer <secret>`.
 - `GET /healthz`
 
 When `webhook_secret` / `JELLYFIN_WEBHOOK_SECRET` is set, requests must send
 `X-Jellyfin-Webhook-Secret: <secret>` or `Authorization: Bearer <secret>`.
+The secret is **required** — empty secret rejects all webhook/userdata HTTP calls.
+
+Optional plugin SSE (`JELLYFIN_SSE=1`): connects to Jellyfin `/api/sse/events` for live playback.
+Stock Jellyfin returns 404 without the plugin; default is **off** so soak hosts do not reconnect forever.
 
 ## Playback events
 
@@ -131,6 +140,8 @@ User mapping: Jellyfin `Name` becomes MuxCore `user_id` by default. Override wit
 | `JELLYFIN_DATA_DIR` | `/var/lib/muxcore-jellyfin` | Durable settings + links |
 | `JELLYFIN_CONFLICT_MODE` | `jellyfin` | Sync conflict policy |
 | `JELLYFIN_SESSIONS_POLL_SECONDS` | `0` | `/Sessions` poll; `0` = off |
+| `JELLYFIN_SSE` | `0` | `1` enables plugin SSE at `/api/sse/events` (requires Jellyfin plugin) |
+| `JELLYFIN_PLAY_URL_STYLE` | `modern` | `modern` (10.9+ `/web/#/details`) or `legacy` (10.8 `#!/details`) |
 | `USERDATA_SYNC` | `0` | `1` enables JF→MuxCore userdata handoff |
 | `USERDATA_SYNC_INTERVAL_SECONDS` | `300` | Pull interval (`USERDATA_SYNC_INTERVAL` alias) |
 | `USERDATA_LOCAL_URL` | | e.g. `http://userdata-local:9680` |
