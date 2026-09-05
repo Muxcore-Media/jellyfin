@@ -7,14 +7,23 @@ jobs:
   goreleaser:
     runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v4
+      - uses: Muxcore-Media/mvp/.github/actions/checkout-mirror@main
         with:
-          path: core
-          repository: Muxcore-Media/core
-      - uses: actions/checkout@v4
-        with:
-          path: jellyfin
-          fetch-depth: 0
+          token: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
+          depth: "0"
+      - name: Checkout core dependency
+        env:
+          TOKEN: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/Muxcore-Media/core.git" core
+      - name: Prepare workspace layout
+        run: |
+          mkdir -p jellyfin
+          shopt -s dotglob
+          for item in *; do
+            case "$item" in core|jellyfin) continue ;; esac
+            mv "$item" jellyfin/
+          done
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
