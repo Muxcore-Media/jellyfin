@@ -587,8 +587,26 @@ func (m *Module) handleUserdataFromMuxcore(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if !m.checkWebhookAuth(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	// ADR-0019 / NFR-SEC-007: the end user comes from the bearer token, never
+	// from X-User-ID. Header-only identity is a gated legacy path.
+	var tokenUser string
+	legacy := false
+	if bearerToken(r) != "" {
+		id, status, msg := m.authenticateUser(r)
+		if id == nil {
+			http.Error(w, msg, status)
+			return
+		}
+		tokenUser = id.ID
+	} else if legacyHeaderTrusted() {
+		if !m.checkWebhookAuth(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		legacy = true
+		slog.Warn("jellyfin: trusting caller-supplied user id header (legacy; set a bearer token instead)", "env", envTrustCallerHeader)
+	} else {
+		http.Error(w, "missing bearer token", http.StatusUnauthorized)
 		return
 	}
 	m.mu.RLock()
@@ -603,12 +621,26 @@ func (m *Module) handleUserdataFromMuxcore(w http.ResponseWriter, r *http.Reques
 		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
 		return
 	}
-	userID := strings.TrimSpace(r.URL.Query().Get("user_id"))
-	if userID == "" {
-		userID = strings.TrimSpace(r.Header.Get("X-User-ID"))
+	claimed := []string{
+		strings.TrimSpace(r.URL.Query().Get("user_id")),
+		strings.TrimSpace(r.Header.Get("X-User-ID")),
+		strings.TrimSpace(blob.UserID),
 	}
-	if userID == "" {
-		userID = blob.UserID
+	userID := tokenUser
+	if legacy {
+		userID = ""
+	}
+	for _, c := range claimed {
+		if c == "" {
+			continue
+		}
+		if !legacy && c != tokenUser {
+			http.Error(w, `{"error":"user id does not match authenticated principal"}`, http.StatusForbidden)
+			return
+		}
+		if userID == "" {
+			userID = c
+		}
 	}
 	if userID == "" {
 		http.Error(w, `{"error":"user_id required"}`, http.StatusBadRequest)

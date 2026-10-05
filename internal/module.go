@@ -68,6 +68,7 @@ type Module struct {
 	sseEnabledFlag   bool
 	sseMu            sync.RWMutex
 	sseConnected     bool
+	identity         IdentityResolver
 }
 
 type Config struct {
@@ -86,6 +87,9 @@ type Config struct {
 	UserdataPushToJF bool
 	UserdataUserMap  map[string]string
 	PlayURLStyle     string
+	// IdentityResolver resolves end-user bearer tokens (ADR-0019). Defaults to
+	// auth-local with a 30 s cache; tests inject a fake.
+	IdentityResolver IdentityResolver
 }
 
 type durableSettings struct {
@@ -186,7 +190,12 @@ func NewModule(cfg Config) *Module {
 	if cfg.PlayURLStyle == "" {
 		cfg.PlayURLStyle = os.Getenv("JELLYFIN_PLAY_URL_STYLE")
 	}
+	resolver := cfg.IdentityResolver
+	if resolver == nil {
+		resolver = newCachingResolver(&authLocalResolver{})
+	}
 	m := &Module{
+		identity:         resolver,
 		id:               cfg.ID,
 		grpcAddr:         cfg.GRPCAddr,
 		httpAddr:         cfg.HTTPAddr,

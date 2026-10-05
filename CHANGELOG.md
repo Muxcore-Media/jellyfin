@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.2] - 2026-10-05
+
+
+### Security
+- `POST|PUT /userdata/from-muxcore` no longer trusts the caller-supplied `X-User-ID` (ADR-0019, NFR-SEC-007). It requires `Authorization: Bearer <auth-local token>`, resolved through auth-local (`ExtractIdentity`, cached 30 s by token SHA-256). `user_id` / `X-User-ID` / body `user_id`, if present, must equal the token's user, else 403. Header-only identity remains only when both `MUXCORE_INSECURE_DISABLE_TLS=true` and `JELLYFIN_TRUST_CALLER_HEADER=1` are set (logs a warning; still needs the webhook secret). Uses `AUTH_LOCAL_GRPC_ADDR` (default `localhost:9403`).
+
 ## [0.3.0] - 2026-10-05
 
 ### Changed
