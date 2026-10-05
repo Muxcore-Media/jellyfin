@@ -3,8 +3,6 @@ package internal
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,10 +15,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
 
 	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
+	"github.com/Muxcore-Media/core/sdk/go/module/meshtls"
 )
 
 // ADR-0019: end-user identity comes from a bearer token resolved through the
@@ -145,20 +142,13 @@ func (a *authLocalResolver) dial() (authv1.AuthServiceClient, error) {
 	if addr == "" {
 		addr = "localhost:9403"
 	}
-	var opt grpc.DialOption
 	host, _, herr := net.SplitHostPort(addr)
 	if herr != nil {
 		host = addr
 	}
-	local := host == "localhost" || host == "127.0.0.1" || host == "::1" || host == ""
-	if (os.Getenv("MUXCORE_INSECURE_DISABLE_TLS") == "true" || os.Getenv("MUXCORE_GRPC_INSECURE") == "true") && local {
-		opt = grpc.WithTransportCredentials(insecure.NewCredentials())
-	} else {
-		creds, err := clientTLS()
-		if err != nil {
-			return nil, err
-		}
-		opt = grpc.WithTransportCredentials(creds)
+	opt, err := meshtls.DialOption(host)
+	if err != nil {
+		return nil, fmt.Errorf("auth-local transport: %w", err)
 	}
 	conn, err := grpc.NewClient(addr, opt)
 	if err != nil {
@@ -168,31 +158,6 @@ func (a *authLocalResolver) dial() (authv1.AuthServiceClient, error) {
 	a.client = authv1.NewAuthServiceClient(conn)
 	slog.Info("jellyfin: identity resolution wired to auth-local", "addr", addr)
 	return a.client, nil
-}
-
-func clientTLS() (credentials.TransportCredentials, error) {
-	certFile := strings.TrimSpace(os.Getenv("MUXCORE_TLS_CERT"))
-	keyFile := strings.TrimSpace(os.Getenv("MUXCORE_TLS_KEY"))
-	if certFile == "" || keyFile == "" {
-		return nil, errors.New("TLS required for auth-local dial: set MUXCORE_TLS_CERT/MUXCORE_TLS_KEY")
-	}
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, fmt.Errorf("load client TLS cert/key: %w", err)
-	}
-	cfg := &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
-	if ca := strings.TrimSpace(os.Getenv("MUXCORE_TLS_CA")); ca != "" {
-		pemBytes, err := os.ReadFile(ca)
-		if err != nil {
-			return nil, fmt.Errorf("read TLS CA: %w", err)
-		}
-		pool := x509.NewCertPool()
-		if !pool.AppendCertsFromPEM(pemBytes) {
-			return nil, fmt.Errorf("parse TLS CA from %q", ca)
-		}
-		cfg.RootCAs = pool
-	}
-	return credentials.NewTLS(cfg), nil
 }
 
 // authenticateUser resolves the bearer token on r to the end user. On failure
