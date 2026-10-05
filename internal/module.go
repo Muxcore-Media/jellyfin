@@ -22,12 +22,11 @@ import (
 	eventsv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/events/v1"
 	"github.com/Muxcore-Media/core/sdk/go/client"
 	modulesdk "github.com/Muxcore-Media/core/sdk/go/module"
+	manifest "github.com/Muxcore-Media/jellyfin"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 )
 
 const (
-	moduleVersion = "0.3.0"
-
 	conflictJellyfin = "jellyfin"
 	conflictMuxcore  = "muxcore"
 	conflictManual   = "manual"
@@ -262,7 +261,7 @@ func (m *Module) Info() contracts.ModuleInfo {
 	return contracts.ModuleInfo{
 		ID:             m.id,
 		Name:           "Jellyfin Playback Bridge",
-		Version:        moduleVersion,
+		Version:        modulesdk.ManifestVersion(manifest.ManifestJSON),
 		Roles:          []string{"playback"},
 		Description:    "Jellyfin bridge — library refresh/sync, playback session events, userdata progress/favorites handoff, external play deep-links",
 		Author:         "MuxCore",

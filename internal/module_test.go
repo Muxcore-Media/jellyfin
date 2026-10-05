@@ -15,6 +15,8 @@ import (
 
 	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 	playbackv1 "github.com/Muxcore-Media/contracts-playback/playbackv1"
+	modulesdk "github.com/Muxcore-Media/core/sdk/go/module"
+	manifest "github.com/Muxcore-Media/jellyfin"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 )
 
@@ -38,7 +40,7 @@ func TestModuleInfo(t *testing.T) {
 	if info.ID != "jellyfin" {
 		t.Fatalf("id: %s", info.ID)
 	}
-	if info.Version != moduleVersion {
+	if info.Version != modulesdk.ManifestVersion(manifest.ManifestJSON) {
 		t.Fatalf("version: %s", info.Version)
 	}
 	foundSettings, foundUD := false, false
