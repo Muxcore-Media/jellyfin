@@ -1,7 +1,7 @@
 package internal
 
 import (
-	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
+	playbackv1 "github.com/Muxcore-Media/contracts-playback/playbackv1"
 )
 
 func streamResolutionFromJFSession(s jfSession) string {

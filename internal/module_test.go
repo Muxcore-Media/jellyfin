@@ -15,7 +15,7 @@ import (
 
 	playbackevents "github.com/Muxcore-Media/contracts-playback/events"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
-	playbackv1 "github.com/Muxcore-Media/playback-contract/proto/playbackv1"
+	playbackv1 "github.com/Muxcore-Media/contracts-playback/playbackv1"
 )
 
 func testModule(t *testing.T, baseURL, apiKey string) *Module {

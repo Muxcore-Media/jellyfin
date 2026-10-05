@@ -1,84 +1,102 @@
+# Generated from Muxcore-Media/umbrella scripts/ci-templates/go-module-ci.yml
+# by scripts/sync-ci.sh — edit the template, not this copy (ADR-0003).
 name: CI
+
 on:
   push:
-    branches: [master, main]
+    branches: [main, master]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
   pull_request:
-    branches: [master, main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 env:
-  REGISTRY: ghcr.io
   GOPRIVATE: github.com/Muxcore-Media/*
+  GONOSUMDB: github.com/Muxcore-Media/*
+  GOFLAGS: -mod=readonly
 
 jobs:
-  lint:
-    runs-on: self-hosted
-    steps:
-      - uses: Muxcore-Media/mvp/.github/actions/checkout-mirror@main
-        with:
-          token: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.26"
-          cache: false
-      - name: Configure private modules (HTTPS)
-        run: |
-          git config --global url."https://x-access-token:${{ secrets.MUXCORE_CI_TOKEN || github.token }}@github.com/".insteadOf "https://github.com/"
-      - run: go vet ./...
-
   test:
-    runs-on: self-hosted
+    name: Build, vet, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: Muxcore-Media/mvp/.github/actions/checkout-mirror@main
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          token: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.26"
-          cache: false
-      - name: Configure private modules (HTTPS)
+          go-version-file: go.mod
+          cache: true
+      - name: Private module access
+        env:
+          TOKEN: ${{ secrets.MUXCORE_CI_TOKEN }}
         run: |
-          git config --global url."https://x-access-token:${{ secrets.MUXCORE_CI_TOKEN || github.token }}@github.com/".insteadOf "https://github.com/"
-      - run: go test -count=1 -timeout 10m ./...
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Muxcore-Media/".insteadOf "https://github.com/Muxcore-Media/"
+          fi
+      - name: No filesystem replace directives
+        run: |
+          if grep -nE '^\s*(replace\s+)?\S+\s+(v\S+\s+)?=>\s+(\.|/)' go.mod; then
+            echo "::error::go.mod must not contain filesystem replace directives (ADR-0011)"; exit 1
+          fi
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -race -count=1 -timeout 15m ./...
 
-  build:
-    runs-on: self-hosted
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Non-blocking until the module's lint debt is cleared (roadmap T-M1-11);
+    # set repository variable LINT_BLOCKING=true to make it a gate.
+    continue-on-error: ${{ vars.LINT_BLOCKING != 'true' }}
     steps:
-      - uses: Muxcore-Media/mvp/.github/actions/checkout-mirror@main
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          token: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.26"
-          cache: false
-      - name: Configure private modules (HTTPS)
+          go-version-file: go.mod
+          cache: true
+      - name: Private module access
+        env:
+          TOKEN: ${{ secrets.MUXCORE_CI_TOKEN }}
         run: |
-          git config --global url."https://x-access-token:${{ secrets.MUXCORE_CI_TOKEN || github.token }}@github.com/".insteadOf "https://github.com/"
-      - run: |
-          go build -o /dev/null ./cmd/module
-          go vet ./...
+          if [ -n "$TOKEN" ]; then
+            git config --global url."https://x-access-token:${TOKEN}@github.com/Muxcore-Media/".insteadOf "https://github.com/Muxcore-Media/"
+          fi
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
 
-  docker:
-    if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
-    runs-on: self-hosted
-    needs: [lint, test, build]
+  proto-check:
+    name: Generated code is current
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: Muxcore-Media/mvp/.github/actions/checkout-mirror@main
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
-          token: ${{ secrets.MUXCORE_CI_TOKEN || github.token }}
-      - name: Configure private modules (HTTPS)
+          go-version-file: go.mod
+          cache: true
+      - name: Install protoc 25.3
         run: |
-          git config --global url."https://x-access-token:${{ secrets.MUXCORE_CI_TOKEN || github.token }}@github.com/".insteadOf "https://github.com/"
-      - uses: docker/setup-buildx-action@v4
-      - name: Lowercase image name
-        run: echo "IMAGE_NAME=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-      - uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          curl -fsSL https://github.com/protocolbuffers/protobuf/releases/download/v25.3/protoc-25.3-linux-x86_64.zip -o /tmp/protoc.zip
+          sudo unzip -qo /tmp/protoc.zip -d /usr/local
+      - name: Regenerate
+        run: |
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+          make proto
+      - name: Fail on drift
+        run: |
+          if ! git diff --exit-code --stat || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::generated code is out of date; run 'make proto' with protoc 25.3 and commit"
+            exit 1
+          fi
