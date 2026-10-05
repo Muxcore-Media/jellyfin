@@ -23,6 +23,9 @@ func (m *Module) jellyfinGET(ctx context.Context, path string) ([]byte, int, err
 	if base == "" || key == "" {
 		return nil, 0, fmt.Errorf("jellyfin not configured")
 	}
+	if err := guardOutboundURL(base + path); err != nil {
+		return nil, 0, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
 		return nil, 0, err
@@ -47,6 +50,9 @@ func (m *Module) jellyfinPOST(ctx context.Context, path string) error {
 	m.mu.RUnlock()
 	if base == "" || key == "" {
 		return fmt.Errorf("jellyfin not configured")
+	}
+	if err := guardOutboundURL(base + path); err != nil {
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, nil)
 	if err != nil {

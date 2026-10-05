@@ -350,7 +350,11 @@ func (m *Module) writeMuxUserdata(ctx context.Context, userID string, blob muxUs
 }
 
 func (m *Module) putUserdataLocal(ctx context.Context, base, userID string, body []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, strings.TrimRight(base, "/")+"/userdata", bytes.NewReader(body))
+	rawURL := strings.TrimRight(base, "/") + "/userdata"
+	if err := guardOutboundURL(rawURL); err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -482,6 +486,9 @@ func (m *Module) jellyfinRequest(ctx context.Context, method, path string, body 
 	var rdr io.Reader
 	if body != nil {
 		rdr = bytes.NewReader(body)
+	}
+	if err := guardOutboundURL(base + path); err != nil {
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
 	if err != nil {

@@ -51,6 +51,9 @@ func (m *Module) runPluginSSE() error {
 	base, apiKey := m.baseURL, m.apiKey
 	m.mu.RUnlock()
 	reqURL := base + "/api/sse/events"
+	if err := guardOutboundURL(reqURL); err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, reqURL, nil)
 	if err != nil {
 		return err
@@ -58,7 +61,9 @@ func (m *Module) runPluginSSE() error {
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", `MediaBrowser Token="`+apiKey+`"`)
 
-	sseClient := &http.Client{}
+	// Long-lived stream: the guard still checks the dial, with a day-long cap
+	// so a metadata redirect cannot sit open forever.
+	sseClient := newGuardedClient(24 * time.Hour)
 	resp, err := sseClient.Do(req)
 	if err != nil {
 		return err

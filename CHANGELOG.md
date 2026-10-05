@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+- Outbound Jellyfin and userdata-local URLs go through netguard Integration (private LAN and loopback allowed; link-local, cloud metadata, and non-HTTP schemes refused). Settings reject a blocked base URL. The plugin SSE dial uses the same guard (NFR-SEC-009).
+
 ## [0.3.5] - 2026-10-05
 
 

@@ -211,7 +211,7 @@ func NewModule(cfg Config) *Module {
 		userdataPushToJF: cfg.UserdataPushToJF,
 		userdataUserMap:  cfg.UserdataUserMap,
 		playURLStyle:     normalizePlayURLStyle(cfg.PlayURLStyle),
-		httpCli:          &http.Client{Timeout: 20 * time.Second},
+		httpCli:          newGuardedClient(20 * time.Second),
 		links:            map[string]*ItemLink{},
 		stopCh:           make(chan struct{}),
 		sessionSeen:      map[string]string{},
@@ -536,8 +536,12 @@ func (m *Module) settingsDefs() []contracts.SettingDef {
 func (m *Module) updateSetting(key, value string) error {
 	switch key {
 	case "base_url", "JELLYFIN_BASE_URL", "JELLYFIN_URL":
+		next := strings.TrimRight(strings.TrimSpace(value), "/")
+		if err := guardOutboundURL(next); err != nil {
+			return err
+		}
 		m.mu.Lock()
-		m.baseURL = strings.TrimRight(strings.TrimSpace(value), "/")
+		m.baseURL = next
 		m.mu.Unlock()
 	case "api_key", "JELLYFIN_API_KEY":
 		if value == "********" {
@@ -578,8 +582,12 @@ func (m *Module) updateSetting(key, value string) error {
 		m.userdataSyncSec = n
 		m.mu.Unlock()
 	case "userdata_local_url", "USERDATA_LOCAL_URL":
+		next := strings.TrimRight(strings.TrimSpace(value), "/")
+		if err := guardOutboundURL(next); err != nil {
+			return err
+		}
 		m.mu.Lock()
-		m.userdataLocalURL = strings.TrimRight(strings.TrimSpace(value), "/")
+		m.userdataLocalURL = next
 		m.mu.Unlock()
 	case "userdata_push_to_jellyfin", "USERDATA_PUSH_TO_JELLYFIN":
 		m.mu.Lock()
