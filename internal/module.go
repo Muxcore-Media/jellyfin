@@ -776,10 +776,6 @@ func (m *Module) runImportSubscriptions() bool {
 	}
 }
 
-func (m *Module) subscribeImportEvents() {
-	_ = m.runImportSubscriptions()
-}
-
 func (m *Module) handleImportEvent(eventType string, evt *eventsv1.Event) {
 	if evt == nil || len(evt.Payload) == 0 {
 		return

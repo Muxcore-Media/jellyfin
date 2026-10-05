@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 )
@@ -20,11 +21,15 @@ func TestListJellyfinItemsPaginated(t *testing.T) {
 		}
 		start := 0
 		if v := r.URL.Query().Get("StartIndex"); v != "" {
-			fmt.Sscanf(v, "%d", &start)
+			if n, err := strconv.Atoi(v); err == nil {
+				start = n
+			}
 		}
 		limit := jfItemsPageSize
 		if v := r.URL.Query().Get("Limit"); v != "" {
-			fmt.Sscanf(v, "%d", &limit)
+			if n, err := strconv.Atoi(v); err == nil {
+				limit = n
+			}
 		}
 		mu.Lock()
 		defer mu.Unlock()
