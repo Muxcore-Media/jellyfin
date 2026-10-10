@@ -17,6 +17,7 @@ MuxCore sidecar module (`jellyfin`). Workspace deploy and SSH: [`../AGENTS.md`](
 - Match existing Go patterns; run `gofmt` and package tests before finishing.
 - Cross-module events: prefer `github.com/Muxcore-Media/contracts-media/events` over deprecated `core/pkg/contracts` aliases.
 - Do not edit polluted workspace dumps (see `MASTER-ROADMAP.md` Appendix H).
+- Erasure (ADR-0035): only the identity provider's ledger, via `erasure.Reconciler` (`internal/erasure.go`), may erase `userdata_user_map` entries; never add an event/HTTP trigger and never call Jellyfin to delete users.
 
 ## Build
 

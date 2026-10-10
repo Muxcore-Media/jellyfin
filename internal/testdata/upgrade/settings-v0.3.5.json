@@ -1,0 +1,26 @@
+{
+  "base_url": "http://jellyfin:8096",
+  "api_key": "fixture-api-key",
+  "webhook_secret": "fixture-secret",
+  "conflict_mode": "muxcore",
+  "sessions_poll_seconds": 30,
+  "userdata_sync": true,
+  "userdata_sync_interval_seconds": 300,
+  "userdata_local_url": "http://userdata-local:9680",
+  "userdata_user_map": {
+    "0a1b2c3d4e5f60718293a4b5c6d7e8f9": "mux-user-alice",
+    "Bob": "mux-user-bob",
+    "jf-only-guest": "guest"
+  },
+  "play_url_style": "modern",
+  "links": {
+    "mux-movie-1": {
+      "muxcore_id": "mux-movie-1",
+      "jellyfin_id": "jf-item-1",
+      "path": "/media/movies/Heat.mkv",
+      "media_kind": "movie",
+      "title": "Heat",
+      "updated_at_unix": 1760000000
+    }
+  }
+}

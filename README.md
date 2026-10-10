@@ -158,6 +158,22 @@ User mapping: Jellyfin `Name` becomes MuxCore `user_id` by default. Override wit
 | `USERDATA_PREFER_MESH` | `1` | Set `0` to force BFF-local files even when URL is set |
 | `JELLYFIN_USERDATA_PUSH_URL` | | e.g. `http://jellyfin:8475/userdata/from-muxcore` |
 
+## User erasure (ADR-0035)
+
+The bridge runs the shared `erasure.Reconciler` (core SDK `sdk/go/module/erasure`). The identity
+provider's erasure ledger is the only authority; the bridge discovers the exclusive `identity`
+provider through core, verifies its certificate CN, applies each tombstone it has not applied, and
+acknowledges. It sweeps at startup and every `ERASURE_SWEEP_INTERVAL` (default `5m`; invalid values
+fail startup). It needs a core connection (`MUXCORE_GRPC_ADDR`): the household and staging profiles
+refuse to start without one, dev logs a warning and runs without it.
+
+Disposition: `userdata_user_map` entries whose **value** is the erased user id are deleted, in one
+`settings.json` replace that also records the erasure id under `erasure_applied`. Re-applying an
+erasure id is a no-op. Retained, by design: Jellyfin server accounts and their data (the bridge
+calls no Jellyfin API to delete users), and map entries in a different id space (Jellyfin ids or
+names, other users' ids, username values). An erased id is not re-seeded into the map from
+`USERDATA_USER_MAP` or the settings API, and bridge writes for it are refused.
+
 ## Health
 
 Module `Health` probes Jellyfin `GET /System/Info` when configured.

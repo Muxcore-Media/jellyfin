@@ -328,6 +328,11 @@ func (m *Module) listJellyfinUserItems(ctx context.Context, userID, filter strin
 }
 
 func (m *Module) writeMuxUserdata(ctx context.Context, userID string, blob muxUserdataBlob) error {
+	// ADR-0035 §3: bridge writes carry no user bearer, so refuse ids the
+	// identity ledger has erased rather than recreate their userdata.
+	if m.userErased(userID) {
+		return fmt.Errorf("user erased")
+	}
 	blob.UserID = userID
 	if blob.Progress == nil {
 		blob.Progress = map[string]muxProgressEntry{}
