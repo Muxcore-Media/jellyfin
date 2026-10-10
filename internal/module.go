@@ -22,6 +22,7 @@ import (
 	eventsv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/events/v1"
 	"github.com/Muxcore-Media/core/sdk/go/client"
 	modulesdk "github.com/Muxcore-Media/core/sdk/go/module"
+	"github.com/Muxcore-Media/core/sdk/go/module/erasure"
 	"github.com/Muxcore-Media/core/sdk/go/module/meshtls"
 	manifest "github.com/Muxcore-Media/jellyfin"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
@@ -69,6 +70,23 @@ type Module struct {
 	sseMu            sync.RWMutex
 	sseConnected     bool
 	identity         IdentityResolver
+
+	// persistMu serialises settings.json writes so a stale snapshot can never
+	// overwrite a later one (an erasure record must not be rolled back by a
+	// concurrent settings update). Lock order: persistMu, then mu.
+	persistMu sync.Mutex
+	// erased is the local erasure_applied record (ADR-0035), keyed by
+	// erasure id. Guarded by mu; persisted in settings.json.
+	erased map[string]erasureRecord
+
+	// ADR-0035 erasure reconciler.
+	erasureDialer   *erasure.ProviderDialer
+	erasureTune     func(*erasure.Config)
+	coreConn        *grpc.ClientConn
+	reconciler      *erasure.Reconciler
+	erasureCancel   context.CancelFunc
+	erasureDone     chan struct{}
+	erasureInterval time.Duration
 }
 
 type Config struct {
@@ -90,6 +108,12 @@ type Config struct {
 	// IdentityResolver resolves end-user bearer tokens (ADR-0019). Defaults to
 	// auth-local with a 30 s cache; tests inject a fake.
 	IdentityResolver IdentityResolver
+	// ErasureDialer overrides discovery of the identity provider through the
+	// core connection (tests). ErasureInterval overrides
+	// ERASURE_SWEEP_INTERVAL; ErasureTune adjusts the reconciler config.
+	ErasureDialer   *erasure.ProviderDialer
+	ErasureInterval time.Duration
+	ErasureTune     func(*erasure.Config)
 }
 
 type durableSettings struct {
@@ -105,6 +129,9 @@ type durableSettings struct {
 	UserdataUserMap  map[string]string   `json:"userdata_user_map,omitempty"`
 	PlayURLStyle     string              `json:"play_url_style,omitempty"`
 	Links            map[string]ItemLink `json:"links,omitempty"`
+	// ErasureApplied is the ADR-0035 erasure_applied record. Absent in files
+	// written before it existed; an absent field loads as empty.
+	ErasureApplied map[string]erasureRecord `json:"erasure_applied,omitempty"`
 }
 
 // ItemLink is the durable MuxCore ↔ Jellyfin mapping.
@@ -196,6 +223,10 @@ func NewModule(cfg Config) *Module {
 	}
 	m := &Module{
 		identity:         resolver,
+		erased:           map[string]erasureRecord{},
+		erasureDialer:    cfg.ErasureDialer,
+		erasureInterval:  cfg.ErasureInterval,
+		erasureTune:      cfg.ErasureTune,
 		id:               cfg.ID,
 		grpcAddr:         cfg.GRPCAddr,
 		httpAddr:         cfg.HTTPAddr,
@@ -279,14 +310,19 @@ func (m *Module) Init(ctx context.Context) error {
 	if err := m.loadDurable(); err != nil {
 		return fmt.Errorf("load settings: %w", err)
 	}
+	if err := m.setupErasure(); err != nil {
+		return err
+	}
 	lis, err := net.Listen("tcp", m.grpcAddr)
 	if err != nil {
+		m.stopErasure(ctx)
 		return fmt.Errorf("listen gRPC %s: %w", m.grpcAddr, err)
 	}
 	m.lis = lis
 	httpLis, err := net.Listen("tcp", m.httpAddr)
 	if err != nil {
 		_ = lis.Close()
+		m.stopErasure(ctx)
 		return fmt.Errorf("listen HTTP %s: %w", m.httpAddr, err)
 	}
 	m.httpLis = httpLis
@@ -331,6 +367,7 @@ func (m *Module) Start(ctx context.Context) error {
 	go m.pollSessionsLoop()
 	go m.pollUserdataLoop()
 	go m.catalogSyncLoop()
+	m.startErasure()
 	return nil
 }
 
@@ -340,6 +377,7 @@ func (m *Module) Stop(ctx context.Context) error {
 	default:
 		close(m.stopCh)
 	}
+	m.stopErasure(ctx)
 	if m.httpSrv != nil {
 		_ = m.httpSrv.Shutdown(ctx)
 	}
@@ -426,11 +464,27 @@ func (m *Module) loadDurable() error {
 		cp := link
 		m.links[k] = &cp
 	}
+	m.erased = map[string]erasureRecord{}
+	for id, rec := range s.ErasureApplied {
+		m.erased[id] = rec
+	}
+	// The map may also come from USERDATA_USER_MAP or Config, which the file
+	// does not control: an erased user id must not be re-seeded from there.
+	m.userdataUserMap = m.withoutErasedLocked(m.userdataUserMap)
 	return nil
 }
 
 func (m *Module) persistDurable() error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.RLock()
+	s := m.durableSnapshotLocked()
+	m.mu.RUnlock()
+	return m.writeDurable(s)
+}
+
+// durableSnapshotLocked copies the durable state. Caller holds mu.
+func (m *Module) durableSnapshotLocked() durableSettings {
 	s := durableSettings{
 		BaseURL:          m.baseURL,
 		APIKey:           m.apiKey,
@@ -444,6 +498,7 @@ func (m *Module) persistDurable() error {
 		UserdataUserMap:  m.userdataUserMap,
 		PlayURLStyle:     m.playURLStyle,
 		Links:            map[string]ItemLink{},
+		ErasureApplied:   m.erased,
 	}
 	for k, link := range m.links {
 		if link == nil {
@@ -451,7 +506,11 @@ func (m *Module) persistDurable() error {
 		}
 		s.Links[k] = *link
 	}
-	m.mu.RUnlock()
+	return s
+}
+
+// writeDurable replaces settings.json atomically (temp file + rename).
+func (m *Module) writeDurable(s durableSettings) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -587,7 +646,7 @@ func (m *Module) updateSetting(key, value string) error {
 		m.mu.Unlock()
 	case "userdata_user_map", "USERDATA_USER_MAP":
 		m.mu.Lock()
-		m.userdataUserMap = parseUserMap(value)
+		m.userdataUserMap = m.withoutErasedLocked(parseUserMap(value))
 		m.mu.Unlock()
 	case "play_url_style", "JELLYFIN_PLAY_URL_STYLE":
 		m.mu.Lock()

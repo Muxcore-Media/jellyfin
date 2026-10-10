@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- ADR-0035/T-M4-07 slice E10: the shared `erasure.Reconciler` (core `sdk/go/module/erasure`
+  v0.6.17, sdk/go/module v0.6.7) applies the identity provider's erasure ledger to
+  `userdata_user_map`. Entries whose value is the erased MuxCore user id are deleted, in one
+  `settings.json` replace that also records the new `erasure_applied` field. Jellyfin server
+  accounts and entries in a different id space are retained. Configured by
+  `ERASURE_SWEEP_INTERVAL` (default 5m); the household profile requires a core connection.
+- An erased user id is not re-seeded into the map from `USERDATA_USER_MAP` or the settings API,
+  and `writeMuxUserdata` refuses it.
+- `settings.json` written by earlier tags opens unchanged (the new field is absent = empty).
+
 ## [0.3.5] - 2026-10-05
 
 
