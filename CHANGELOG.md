@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-10-10
+
 ### Added
 - ADR-0035/T-M4-07 slice E10: the shared `erasure.Reconciler` (core `sdk/go/module/erasure`
   v0.6.17, sdk/go/module v0.6.7) applies the identity provider's erasure ledger to
@@ -12,6 +14,9 @@
 - An erased user id is not re-seeded into the map from `USERDATA_USER_MAP` or the settings API,
   and `writeMuxUserdata` refuses it.
 - `settings.json` written by earlier tags opens unchanged (the new field is absent = empty).
+
+### Changed
+- Docker build stage: golang base image 1.26-alpine -> 1.27-alpine (#19).
 
 ## [0.3.5] - 2026-10-05
 
